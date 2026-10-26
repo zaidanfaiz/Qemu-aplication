@@ -20,7 +20,9 @@ Qemu Application is an **Android APK** for launching software-emulated QEMU virt
 
 ## Features
 
-- Minimal native-style screen: boot media, architecture, resources, and primary VM actions\n- **Browse / Choose ISO** opens Android's system file picker (SAF), with progress and **Clear** to boot from the virtual disk\n- One **Setup QEMU** button replaces the long first-run instruction panel
+- Minimal native-style screen: boot media, architecture, resources, and primary VM actions
+- **Browse / Choose ISO** opens Android's system file picker (SAF), with progress and **Clear** to boot from the virtual disk
+- One **Setup QEMU** button replaces the long first-run instruction panel
 - Installs QEMU packages through Termux after the mandatory one-time authorization
 - Configures x86_64, i386, and experimental AArch64 direct-kernel guests
 - Creates a persistent QCOW2 disk without silently overwriting an existing disk
@@ -44,7 +46,7 @@ The development APK uses the Android **debug** signing certificate. It is intend
 2. Install APK Qemu Application dari **Releases**. Tekan **Setup QEMU**.
 3. Pada penggunaan pertama, app menyalin perintah otorisasi. Paste di Termux, jalankan, lalu berikan izin **Run commands in Termux environment** untuk Qemu Application melalui pengaturan Android.
 4. Kembali ke APK, tekan **Setup QEMU** lagi. Perintah instalasi QEMU dikirim ke Termux. Tunggu sampai selesai dan izinkan akses storage jika diminta.
-5. Taruh ISO Linux di `Download`; pilih `x86_64`, RAM 1024 MB, 2 core, dan buat disk lewat **Create virtual disk**.
+5. Pilih `x86_64`, RAM 1024 MB, 2 core. Tekan **Create virtual disk** sekali.
 6. Nama ISO akan muncul otomatis. Tekan **Start virtual machine**, lalu **Check status**. Untuk boot dari disk setelah instalasi OS, tekan **Clear** pada ISO.
 7. Setelah VNC aktif, tekan **Open display**. Untuk berhenti, matikan OS dari dalam guest atau gunakan tombol **Stop VM** (penghentian paksa).
 
@@ -97,7 +99,7 @@ Download an x86_64 Linux installer ISO to your phone, then:
 
 The import creates its own copy, so large ISOs need enough spare storage. To free space, delete old files inside `Download/QemuApplication` using Android's file manager. Android 8–9 may ask for legacy write permission. On Android 10+, the app uses MediaStore. Termux still needs its own storage permission.
 
-### 3A. Manual path reference (optional)
+### 3A. Where imported files are stored (reference only)
 
 Download a legally distributable **x86_64 Linux installer ISO** appropriate for QEMU (start with a lightweight guest, such as Alpine Linux). Place the ISO in the phone's Download folder. Example absolute file path:
 
@@ -121,11 +123,11 @@ Reusing the same disk is supported. **Create virtual disk does not overwrite an 
 
 ### 5. Start the virtual machine
 
-Enter your ISO absolute path, tap **Start QEMU**, then **Check VM status**. QEMU runs locally under Termux using the phone's CPU (software TCG, not a remote PC).
+With a successfully imported ISO selected under **Boot media**, tap **Start virtual machine** then **Check status**. QEMU runs locally under Termux (software TCG, not a remote PC).
 
-When VNC and QMP become available, tap **Open VNC display**. The viewer retries while QEMU starts. Inside VNC: touch to click/drag, use the keys below the display, and send basic text input.
+When VNC and QMP become available, tap **Open display**. The viewer retries while QEMU starts. Inside VNC: touch to click/drag, use the keys below the display, and send basic text input.
 
-After installing the guest OS to QCOW2, **clear the ISO field** and start the VM again to boot its virtual hard disk.
+After installing the guest OS to QCOW2, tap **Clear** next to **Browse**, then start the VM again to boot the virtual disk.
 
 ### 6. Stop the virtual machine
 
