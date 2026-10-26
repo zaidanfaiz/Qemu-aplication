@@ -46,7 +46,7 @@ Java_dev_zaidan_qemu_NativeEngine_nativeRun(JNIEnv* env, jclass,
         // export qemu_init, qemu_main_loop and qemu_cleanup. A stock Linux executable
         // or unmodified system library is not an interchangeable substitute.
         handle = dlopen(pathChars, RTLD_NOW | RTLD_LOCAL);
-        if (!handle) { error = dlerror() ? dlerror() : "dlopen failed"; break; }
+        if (!handle) { const char* detail = dlerror(); error = detail ? detail : "dlopen failed"; break; }
         auto init = reinterpret_cast<init_type>(dlsym(handle, "qemu_init"));
         auto loop = reinterpret_cast<loop_type>(dlsym(handle, "qemu_main_loop"));
         auto cleanup = reinterpret_cast<cleanup_type>(dlsym(handle, "qemu_cleanup"));

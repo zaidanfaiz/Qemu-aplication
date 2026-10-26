@@ -53,7 +53,7 @@ public final class NativeVmService extends Service {
         PendingIntent pending = PendingIntent.getActivity(this, 0, open,
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         Notification notification = new Notification.Builder(this, channel)
-                .setSmallIcon(android.R.drawable.stat_sys_data_usb)
+                .setSmallIcon(android.R.drawable.ic_media_play)
                 .setContentTitle("Qemu Application")
                 .setContentText("Native QEMU machine session")
                 .setContentIntent(pending).setOngoing(true).build();
