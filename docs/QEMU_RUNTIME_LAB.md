@@ -27,3 +27,22 @@ Repo > Actions > QEMU Runtime Lab (upstream source) > choose run > Jobs/Artifact
 Audit ELF NEEDED/interpreter, replace hardcoded Termux prefixes, package library dependencies and BIOS/UEFI, convert to compatible library/loader interface (the existing bridge expects libqemu-system-*.so exposing qemu_init/qemu_main_loop/qemu_cleanup), fulfill QEMU GPL and dependency licenses, and test full guest boot on real Android ARM64.
 
 Reference: https://github.com/termux/termux-packages/wiki/Building-packages
+## First experimental CI results (run 40399224863)
+
+- **Linux QEMU/QMP smoke test succeeded.**
+- **Android AArch64/Bionic cross-compile succeeded:** ELF binaries were produced and extracted, including `qemu-system-x86_64` and `qemu-system-aarch64`.
+- The Android job failed **only at artifact upload** because Debian epoch filenames such as `qemu-common_1:11.1.2_aarch64.deb` contain a colon, which `actions/upload-artifact` rejects.
+- The next CI revision wraps the original Debian filenames into a single portable `.tar.gz` with SHA-256 checksum. It also records `readelf -d` and ELF program headers for dependency/linker auditing.
+
+### Extracting the corrected Android artifact
+
+Once the workflow finishes successfully, download `qemu-11.1.2-android-arm64-EXPERIMENTAL`, then:
+
+```bash
+sha256sum -c qemu-11.1.2-android-arm64-experiment.tar.gz.sha256
+tar -xzf qemu-11.1.2-android-arm64-experiment.tar.gz
+ls -l android-arm64/extracted/data/data/com.termux/files/usr/bin/qemu-system-*
+cat android-arm64/audit/qemu-system-aarch64.dynamic-deps.txt
+```
+
+**Note:** the upstream cross-compile is real, but the packaged output still targets Termux's Android/Bionic prefix. It is not yet a standalone native APK library and is not tested on physical Android hardware.

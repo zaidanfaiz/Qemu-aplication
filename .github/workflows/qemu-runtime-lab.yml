@@ -116,10 +116,38 @@ jobs:
             'Executables are NOT native JNI libqemu-system-*.so libraries.' \
             'Do not insert this package directly into app/src/main/jniLibs.' \
             > out/android-arm64/NOT_APK_READY.txt
+      - name: Audit Android ELF runtime requirements
+        run: |
+          set -euo pipefail
+          root=out/android-arm64/extracted/data/data/com.termux/files/usr/bin
+          mkdir -p out/android-arm64/audit
+          for name in qemu-system-x86_64 qemu-system-aarch64; do
+            bin="$root/$name"
+            test -s "$bin"
+            file "$bin" | tee "out/android-arm64/audit/$name.file.txt"
+            readelf -h "$bin" > "out/android-arm64/audit/$name.elf-header.txt"
+            readelf -l "$bin" > "out/android-arm64/audit/$name.program-headers.txt"
+            readelf -d "$bin" > "out/android-arm64/audit/$name.dynamic-deps.txt"
+            sha256sum "$bin" >> out/android-arm64/audit/SHA256SUMS
+          done
+          echo "Android binaries compiled successfully. ELF audit recorded."
+          echo "WARNING: missing runtime library dependencies and hardcoded Termux prefix are NOT fixed."
+      - name: Repackage binary artifacts with portable filenames
+        run: |
+          set -euo pipefail
+          # Debian epochs contain ':' in .deb file names.
+          # actions/upload-artifact rejects ':' anywhere in uploaded paths.
+          # Tar preserves real .deb filenames INSIDE a safe-named archive.
+          tar -C out -czf qemu-11.1.2-android-arm64-experiment.tar.gz android-arm64
+          sha256sum qemu-11.1.2-android-arm64-experiment.tar.gz \
+            > qemu-11.1.2-android-arm64-experiment.tar.gz.sha256
+          ls -lh qemu-11.1.2-android-arm64-experiment.tar.gz
       - name: Upload Android experiment result
         uses: actions/upload-artifact@v4
         with:
           name: qemu-11.1.2-android-arm64-EXPERIMENTAL
-          path: out/android-arm64
+          path: |
+            qemu-11.1.2-android-arm64-experiment.tar.gz
+            qemu-11.1.2-android-arm64-experiment.tar.gz.sha256
           if-no-files-found: error
           retention-days: 14
