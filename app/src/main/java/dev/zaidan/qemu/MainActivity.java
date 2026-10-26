@@ -50,64 +50,222 @@ public class MainActivity extends Activity {
         buildUi();
     }
 
+    private TextView isoFile, vmSummary;
+    private View advancedPanel, isoPickerRow;
+    private Button browseButton, startButton;
+    private boolean importInProgress;
+    private android.net.Uri pendingLegacyIso;
+    private static final int REQUEST_ISO = 201, REQUEST_LEGACY_STORAGE = 202;
+
     private void buildUi() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(BG);
+        scroll.setBackgroundColor(0xFF101217);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(26), dp(20), dp(32));
+        root.setPadding(dp(20), dp(22), dp(20), dp(35));
         scroll.addView(root);
         setContentView(scroll);
 
-        TextView eyebrow = label("ANDROID • QEMU CONTROL CENTER", 12, 0xFF60A5FA, true);
-        root.addView(eyebrow);
-        android.widget.ImageView brand = new android.widget.ImageView(this);
-        brand.setImageResource(R.drawable.qemu_brand);
-        LinearLayout.LayoutParams brandLayout = new LinearLayout.LayoutParams(dp(82), dp(82));
-        brandLayout.topMargin = dp(10);
-        root.addView(brand, brandLayout);
-        TextView headline = label("Virtual machines\non your phone.", 31, TEXT, true);
-        headline.setPadding(0, dp(10), 0, dp(8));
-        root.addView(headline);
-        TextView intro = label("Local QEMU backend via Termux • VNC display • QMP shutdown. No root required for software emulation.", 14, MUTED, false);
-        root.addView(intro);
-        root.addView(spacer(22));
+        iso = new EditText(this);
+        iso.setText(preferences.getString("iso", ""));
 
-        LinearLayout form = panel(root);
-        form.addView(label("MACHINE CONFIGURATION", 12, 0xFF60A5FA, true));
-        form.addView(spacer(14));
-        form.addView(label("Guest CPU architecture", 14, TEXT, true));
+        LinearLayout header = horizontal();
+        android.widget.ImageView icon = new android.widget.ImageView(this);
+        icon.setImageResource(R.drawable.qemu_brand);
+        icon.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        header.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        LinearLayout brand = vertical();
+        brand.setPadding(dp(11), dp(2), 0, 0);
+        brand.addView(label("Qemu Application", 18, 0xFFE9ECF2, true));
+        brand.addView(label("LOCAL VIRTUAL MACHINE", 10, 0xFF8E949E, false));
+        header.addView(brand, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView version = label("0.3 DEV", 11, 0xFF8995A6, false);
+        version.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(version);
+        root.addView(header);
+        root.addView(spacer(23));
+
+        vmSummary = label("●  Checking VM status…", 13, 0xFFA6ADB9, false);
+        root.addView(vmSummary);
+        root.addView(spacer(15));
+        divider(root);
+        root.addView(spacer(21));
+
+        root.addView(label("Virtual machine", 24, 0xFFF1F3F6, true));
+        TextView subtitle = label("Choose a boot image and configure the guest.", 13, 0xFF9299A5, false);
+        subtitle.setPadding(0, dp(5), 0, dp(23));
+        root.addView(subtitle);
+
+        section(root, "BOOT MEDIA");
+        LinearLayout mediaRow = horizontal();
+        mediaRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout mediaCopy = vertical();
+        mediaCopy.addView(label("Installer image", 15, 0xFFE8EDF2, true));
+        isoFile = label("No ISO selected • boots from virtual disk", 12, 0xFF949CA8, false);
+        isoFile.setMaxLines(2);
+        isoFile.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        mediaCopy.addView(isoFile);
+        mediaRow.addView(mediaCopy, new LinearLayout.LayoutParams(0, -2, 1));
+        browseButton = flatButton("Choose ISO", false, this::pickIso);
+        LinearLayout.LayoutParams browseParams = new LinearLayout.LayoutParams(dp(114), dp(43));
+        browseParams.leftMargin = dp(10);
+        mediaRow.addView(browseButton, browseParams);
+        isoPickerRow = mediaRow;
+        root.addView(mediaRow);
+        root.addView(spacer(12));
+
+        section(root, "ARCHITECTURE");
         cpu = new Spinner(this);
         String[] arch = {"x86_64", "i386", "aarch64 (kernel)"};
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, arch);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+            android.R.layout.simple_spinner_item, arch);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         cpu.setAdapter(adapter);
-        cpu.setSelection(preferences.getInt("arch", 0));
-        form.addView(cpu, new LinearLayout.LayoutParams(-1, dp(49)));
-        iso = field(form, "Boot ISO path (x86 only)", "/sdcard/Download/linux.iso", preferences.getString("iso", ""), false);
-        form.addView(label("EXPERIMENTAL ARM64 DIRECT-KERNEL BOOT", 12, 0xFF60A5FA, true));
-        kernel = field(form, "ARM64 kernel image path", "/sdcard/Download/Image", preferences.getString("kernel", ""), false);
-        initrd = field(form, "ARM64 initrd (optional)", "/sdcard/Download/initramfs.cpio.gz", preferences.getString("initrd", ""), false);
-        dtb = field(form, "ARM64 DTB (optional)", "/sdcard/Download/virt.dtb", preferences.getString("dtb", ""), false);
-        kernelArgs = field(form, "ARM64 kernel arguments", "console=ttyAMA0", preferences.getString("kargs", "console=ttyAMA0"), false);
-        ram = field(form, "RAM (MB)", "1024", preferences.getString("ram", "1024"), true);
-        cores = field(form, "vCPU cores", "2", preferences.getString("cores", "2"), true);
-        diskSize = field(form, "New disk size (GB)", "8", preferences.getString("disk", "8"), true);
-        form.addView(spacer(6));
-        action(form, "Setup QEMU", true, this::setupEnvironment);
-        action(form, "Check VM status", false, this::checkStatus);
-        action(form, "Create virtual disk", false, () -> createDisk());
-        action(form, "▶  Start QEMU", true, () -> startVm());
-        action(form, "Open VNC display", false, () -> startActivity(new Intent(this, ViewerActivity.class)));
-        action(form, "■  Stop VM (QMP quit)", false, () -> stopVm());
+        cpu.setSelection(Math.min(2, Math.max(0, preferences.getInt("arch", 0))));
+        cpu.setBackground(surface(0xFF1B1F27, 0xFF363B45, 10));
+        cpu.setPadding(dp(11), 0, dp(11), 0);
+        root.addView(cpu, new LinearLayout.LayoutParams(-1, dp(48)));
+        root.addView(spacer(22));
 
-        root.addView(spacer(12));
-        root.addView(label("Install Termux and authorize it once. Setup then installs QEMU packages automatically.", 12, MUTED, false));
-        root.addView(spacer(14));
-        status = label("Idle • Ready to configure", 13, 0xFF93C5FD, false);
+        section(root, "RESOURCES");
+        LinearLayout resources = horizontal();
+        resources.setGravity(Gravity.TOP);
+        LinearLayout ramCell = vertical(), cpuCell = vertical(), diskCell = vertical();
+        resources.addView(ramCell, weightCell());
+        resources.addView(cpuCell, weightCell());
+        resources.addView(diskCell, weightCell());
+        ram = field(ramCell, "RAM · MB", "1024", preferences.getString("ram", "1024"), true);
+        cores = field(cpuCell, "CPU", "2", preferences.getString("cores", "2"), true);
+        diskSize = field(diskCell, "Disk · GB", "8", preferences.getString("disk", "8"), true);
+        root.addView(resources);
+        root.addView(spacer(8));
+        root.addView(label("The disk is persistent. Creating it will not overwrite an existing image.", 11, 0xFF8D939D, false));
+        root.addView(spacer(9));
+
+        Button createDisk = flatButton("Create virtual disk", false, this::createDisk);
+        root.addView(createDisk, new LinearLayout.LayoutParams(-1, dp(45)));
+        root.addView(spacer(22));
+
+        startButton = flatButton("Start virtual machine", true, this::startVm);
+        root.addView(startButton, new LinearLayout.LayoutParams(-1, dp(52)));
+        root.addView(spacer(8));
+
+        LinearLayout actions = horizontal();
+        Button display = flatButton("Open display", false,
+            () -> startActivity(new Intent(this, ViewerActivity.class)));
+        Button stop = flatButton("Stop VM", false, this::stopVm);
+        LinearLayout.LayoutParams p1 = weightCell();
+        p1.rightMargin = dp(8);
+        actions.addView(display, p1);
+        actions.addView(stop, weightCell());
+        root.addView(actions);
+        root.addView(spacer(26));
+        divider(root);
+        root.addView(spacer(19));
+        section(root, "ENVIRONMENT");
+        LinearLayout tools = horizontal();
+        Button setup = flatButton("Setup QEMU", false, this::setupEnvironment);
+        Button check = flatButton("Check status", false, this::checkStatus);
+        LinearLayout.LayoutParams toolsP = weightCell();
+        toolsP.rightMargin = dp(8);
+        tools.addView(setup, toolsP);
+        tools.addView(check, weightCell());
+        root.addView(tools);
+
+        root.addView(spacer(16));
+        Button advanced = flatButton("Advanced ARM64 options   ▾", false, () -> {
+            boolean show = advancedPanel.getVisibility() != View.VISIBLE;
+            advancedPanel.setVisibility(show ? View.VISIBLE : View.GONE);
+        });
+        root.addView(advanced, new LinearLayout.LayoutParams(-1, dp(43)));
+
+        LinearLayout extras = vertical();
+        extras.setPadding(0, dp(10), 0, dp(5));
+        kernel = field(extras, "Kernel image", "/sdcard/Download/Image", preferences.getString("kernel", ""), false);
+        initrd = field(extras, "Initrd · optional", "/sdcard/Download/initramfs.cpio.gz", preferences.getString("initrd", ""), false);
+        dtb = field(extras, "Device tree · optional", "/sdcard/Download/virt.dtb", preferences.getString("dtb", ""), false);
+        kernelArgs = field(extras, "Kernel arguments", "console=ttyAMA0", preferences.getString("kargs", "console=ttyAMA0"), false);
+        advancedPanel = extras;
+        extras.setVisibility(cpu.getSelectedItemPosition() == 2 ? View.VISIBLE : View.GONE);
+        root.addView(extras);
+
+        root.addView(spacer(16));
+        status = label("Ready", 12, 0xFFAAB1BB, false);
         root.addView(status);
-        root.addView(spacer(12));
-        root.addView(label("Developer preview: Termux-based QEMU. Experimental ARM64 kernel mode is not an iOS boot implementation.", 12, MUTED, false));
+
+        cpu.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onNothingSelected(android.widget.AdapterView<?> view) {}
+            @Override public void onItemSelected(android.widget.AdapterView<?> view, View target, int position, long id) {
+                boolean arm = position == 2;
+                isoPickerRow.setAlpha(arm ? 0.48f : 1f);
+                browseButton.setEnabled(!arm && !importInProgress);
+                if (arm) advancedPanel.setVisibility(View.VISIBLE);
+            }
+        });
+        updateIsoLabel();
+        checkStatus();
+    }
+
+    private LinearLayout vertical() {
+        LinearLayout l = new LinearLayout(this);
+        l.setOrientation(LinearLayout.VERTICAL);
+        return l;
+    }
+
+    private LinearLayout horizontal() {
+        LinearLayout l = new LinearLayout(this);
+        l.setOrientation(LinearLayout.HORIZONTAL);
+        return l;
+    }
+
+    private LinearLayout.LayoutParams weightCell() {
+        return new LinearLayout.LayoutParams(0, -2, 1);
+    }
+
+    private void section(LinearLayout parent, String name) {
+        TextView t = label(name, 11, 0xFFA8B0BC, true);
+        t.setLetterSpacing(.09f);
+        t.setPadding(0, 0, 0, dp(9));
+        parent.addView(t);
+    }
+
+    private void divider(LinearLayout parent) {
+        View line = new View(this);
+        line.setBackgroundColor(0xFF2C3038);
+        parent.addView(line, new LinearLayout.LayoutParams(-1, dp(1)));
+    }
+
+    private android.graphics.drawable.GradientDrawable surface(int fill, int stroke, int corner) {
+        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+        shape.setColor(fill);
+        shape.setStroke(dp(1), stroke);
+        shape.setCornerRadius(dp(corner));
+        return shape;
+    }
+
+    private Button flatButton(String title, boolean primary, Runnable tap) {
+        Button b = new Button(this);
+        b.setText(title);
+        b.setAllCaps(false);
+        b.setTextSize(13);
+        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        b.setTextColor(primary ? 0xFF11171D : 0xFFE0E4EA);
+        b.setPadding(dp(10), 0, dp(10), 0);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setBackground(surface(primary ? 0xFFBCC9E6 : 0xFF242831,
+                               primary ? 0xFFBCC9E6 : 0xFF383E48, 10));
+        b.setOnClickListener(v -> tap.run());
+        return b;
+    }
+
+    private void updateIsoLabel() {
+        if (isoFile == null) return;
+        String chosen = preferences.getString("isoName", "");
+        String path = iso == null ? "" : iso.getText().toString().trim();
+        isoFile.setText(path.isEmpty() ? "No ISO selected • boot from disk"
+            : (chosen.isEmpty() ? "Boot ISO selected" : chosen));
     }
 
     private boolean termuxInstalled() {
