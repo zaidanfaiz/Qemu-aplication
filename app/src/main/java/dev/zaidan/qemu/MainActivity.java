@@ -166,10 +166,7 @@ public class MainActivity extends Activity {
     }
 
     private String launchGuard() {
-        return "set -eu; DIR=\\"$HOME/qemu-aplication\\"; mkdir -p \\"$DIR\\"; " +
-          "if [ ! -f \\"$DIR/setup.status\\" ]; then echo 'Run Setup first' > \\"$DIR/run.log\\"; exit 1; fi; " +
-          "PID=\\"$DIR/qemu.pid\\"; if [ -f \\"$PID\\" ]; then old=$(cat \\"$PID\\" 2>/dev/null || true); " +
-          "if [ -n \\"$old\\" ] && kill -0 \\"$old\\" 2>/dev/null; then echo 'VM already running' > \\"$DIR/run.log\\"; exit 1; fi; rm -f \\"$PID\\"; fi; ";
+        return "set -eu; DIR=\"$HOME/qemu-aplication\"; mkdir -p \"$DIR\"; if [ ! -f \"$DIR/setup.status\" ]; then echo 'Run Setup first' > \"$DIR/run.log\"; exit 1; fi; PID=\"$DIR/qemu.pid\"; if [ -r \"$PID\" ]; then old=$(cat \"$PID\" 2>/dev/null || true); if [ -n \"$old\" ] && kill -0 \"$old\" 2>/dev/null; then echo 'VM already running' > \"$DIR/run.log\"; exit 1; fi; rm -f \"$PID\"; fi; ";
     }
 
     private void persist() {
@@ -197,6 +194,9 @@ public class MainActivity extends Activity {
     }
 
     private void startVm() {
+        if (startPending) { info("VM start already requested; check its status."); return; }
+        startPending = true;
+        new android.os.Handler(getMainLooper()).postDelayed(() -> startPending = false, 4000);
         persist();
         int memory = numeric(ram, 256, 8192), count = numeric(cores, 1, 8);
         if (memory == -1 || count == -1) { info("RAM: 256–8192 MB. Cores: 1–8."); return; }
@@ -214,10 +214,11 @@ public class MainActivity extends Activity {
         String command = launchGuard() +
           "if ! command -v " + binary + " >/dev/null; then echo 'QEMU package missing' > \"$HOME/qemu-aplication/run.log\"; exit 127; fi; " +
           "if [ ! -f \"$HOME/qemu-aplication/disk.qcow2\" ]; then echo 'Create disk first' > \"$HOME/qemu-aplication/run.log\"; exit 1; fi; " +
-          "exec " + binary + " -machine pc -accel tcg,thread=multi -cpu max -smp " + count +
+          (bootIso.isEmpty() ? "" : "if [ ! -r " + quote(bootIso) + " ]; then echo 'ISO cannot be read' > \"$DIR/run.log\"; exit 1; fi; ") +
+          "echo $ > \"$PID\"; exec " + binary + " -machine pc -accel tcg,thread=multi -cpu max -smp " + count +
           " -m " + memory + " -boot order=" + boot +
           " -drive file=\"$HOME/qemu-aplication/disk.qcow2\",if=ide,format=qcow2" + optIso +
-          " -device usb-tablet -vga std" +
+          " -usb -device usb-tablet -vga std" +
           " -netdev user,id=net0 -device e1000,netdev=net0" +
           " -vnc 127.0.0.1:1 -display none" +
           " -qmp tcp:127.0.0.1:4444,server=on,wait=off" +
@@ -244,10 +245,13 @@ public class MainActivity extends Activity {
         }
         String other = (r.isEmpty() ? "" : " -initrd " + quote(r))
                      + (d.isEmpty() ? "" : " -dtb " + quote(d));
-        String script = "mkdir -p \"$HOME/qemu-aplication\"; " +
+        String script = launchGuard() +
           "if ! command -v qemu-system-aarch64 >/dev/null; then echo 'Install qemu-system-aarch64-headless' > \"$HOME/qemu-aplication/run.log\"; exit 127; fi; " +
           "if [ ! -f \"$HOME/qemu-aplication/disk.qcow2\" ]; then echo 'Create disk first' > \"$HOME/qemu-aplication/run.log\"; exit 1; fi; " +
-          "exec qemu-system-aarch64 -machine virt,accel=tcg -cpu cortex-a72" +
+          "if [ ! -r " + quote(k) + " ]; then echo 'ARM64 kernel cannot be read' > \"$DIR/run.log\"; exit 1; fi; " +
+          (r.isEmpty() ? "" : "if [ ! -r " + quote(r) + " ]; then echo 'initrd cannot be read' > \"$DIR/run.log\"; exit 1; fi; ") +
+          (d.isEmpty() ? "" : "if [ ! -r " + quote(d) + " ]; then echo 'DTB cannot be read' > \"$DIR/run.log\"; exit 1; fi; ") +
+          "echo $ > \"$PID\"; exec qemu-system-aarch64 -machine virt,accel=tcg -cpu cortex-a72" +
           " -smp " + count + " -m " + memory + " -kernel " + quote(k) + other +
           " -append " + quote(args) +
           " -drive file=\"$HOME/qemu-aplication/disk.qcow2\",format=qcow2,if=virtio" +
@@ -277,7 +281,12 @@ public class MainActivity extends Activity {
                 output.write("{\"execute\":\"quit\"}\r\n".getBytes(StandardCharsets.UTF_8));
                 output.flush();
                 runOnUiThread(() -> info("QMP quit submitted."));
-            } catch (Exception e) { runOnUiThread(() -> info("Cannot reach VM QMP: " + e.getMessage())); }
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    info("QMP unavailable; asking Termux to stop the recorded QEMU process.");
+                    runTermux("PID=\"$HOME/qemu-aplication/qemu.pid\"; if [ -r \"$PID\" ]; then p=\"$(cat \"$PID\" 2>/dev/null || true)\"; case \"$p\" in ''|*[!0-9]*) exit 0;; esac; if [ -r \"/proc/$p/cmdline\" ] && tr '\\\\0' ' ' < \"/proc/$p/cmdline\" | grep -q 'qemu-system-'; then kill -TERM \"$p\" || true; fi; fi", "Termux PID stop fallback requested.");
+                });
+            }
         }, "qmp-stop").start();
     }
 
