@@ -1,0 +1,99 @@
+name: QEMU ARM64 Minimal Runtime Experiment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/qemu-arm64-minimal.yml'
+      - 'scripts/qemu-lab/minimize_termux_recipe.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qemu-arm64-minimal
+  cancel-in-progress: true
+
+jobs:
+  android-arm64-minimal:
+    name: Native Android ARM64 - minimal headless/QMP/VNC binary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 170
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone Android Bionic build tools
+        uses: actions/checkout@v4
+        with:
+          repository: termux/termux-packages
+          path: termux-packages
+          fetch-depth: 1
+      - name: Clone official qemu/QEMU v11.1.2 source
+        uses: actions/checkout@v4
+        with:
+          repository: qemu/qemu
+          ref: v11.1.2
+          path: termux-packages/sources/qemu
+          fetch-depth: 1
+      - name: Configure a minimal QEMU source build
+        run: |
+          python3 scripts/qemu-lab/prepare_termux_recipe.py \
+            termux-packages/packages/qemu-system-x86-64-headless/build.sh \
+            termux-packages/sources/qemu
+          python3 scripts/qemu-lab/minimize_termux_recipe.py \
+            termux-packages/packages/qemu-system-x86-64-headless/build.sh
+      - name: Cross-build upstream QEMU for Android ARM64
+        working-directory: termux-packages
+        run: |
+          chmod +x scripts/run-docker.sh
+          ./scripts/run-docker.sh ./build-package.sh -a aarch64 -f -I qemu-system-x86-64-headless
+      - name: Extract ONLY QEMU PC and ARM64 binaries and inspect dependencies
+        run: |
+          set -euo pipefail
+          mkdir -p dist/qemu-android-minimal/{packages,extracted,audit}
+          for pattern in 'qemu-system-x86-64-headless_*.deb' \
+                         'qemu-system-aarch64-headless_*.deb' \
+                         'qemu-common_*.deb'; do
+            found=$(find termux-packages/output -maxdepth 1 -name "$pattern" -print -quit)
+            if [[ -z "$found" ]]; then echo "Missing output package: $pattern" >&2; exit 1; fi
+            cp "$found" dist/qemu-android-minimal/packages/
+            dpkg-deb -x "$found" dist/qemu-android-minimal/extracted/
+          done
+          root=dist/qemu-android-minimal/extracted/data/data/com.termux/files/usr/bin
+          for name in qemu-system-x86_64 qemu-system-aarch64; do
+            bin="$root/$name"
+            test -s "$bin"
+            file "$bin" | tee "dist/qemu-android-minimal/audit/$name.file.txt"
+            readelf -h "$bin" > "dist/qemu-android-minimal/audit/$name.elf.txt"
+            readelf -l "$bin" > "dist/qemu-android-minimal/audit/$name.program.txt"
+            readelf -d "$bin" > "dist/qemu-android-minimal/audit/$name.deps.txt"
+            count=$(grep -c '(NEEDED)' "dist/qemu-android-minimal/audit/$name.deps.txt" || true)
+            printf '%s\t%s\n' "$name" "$count" | tee -a dist/qemu-android-minimal/audit/dependency-count.tsv
+            if (( count >= 31 )); then
+              echo "Minimal build did not reduce baseline 31 linked dependencies" >&2
+              exit 1
+            fi
+            grep -q 'Machine: *AArch64' "dist/qemu-android-minimal/audit/$name.elf.txt"
+            sha256sum "$bin" >> dist/qemu-android-minimal/audit/SHA256SUMS
+          done
+          printf '%s\n' \
+            'EXPERIMENTAL: cross-compiled Android ARM64 QEMU executable binaries.' \
+            'NOT verified running on an Android device.' \
+            'NOT standalone JNI libraries and NOT ready for APK bundling.' \
+            'Some dependencies and Termux paths remain; inspect audit/deps.txt.' \
+            > dist/qemu-android-minimal/README.txt
+      - name: Bundle into a portable CI artifact
+        run: |
+          set -euo pipefail
+          tar -C dist -czf qemu-android-arm64-minimal-v11.1.2.tar.gz qemu-android-minimal
+          sha256sum qemu-android-arm64-minimal-v11.1.2.tar.gz > qemu-android-arm64-minimal-v11.1.2.tar.gz.sha256
+          ls -lh qemu-android-arm64-minimal-v11.1.2.tar.gz
+      - name: Publish experimental artifact (NOT an APK release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-android-arm64-minimal-DEPENDENCY-LAB
+          path: |
+            qemu-android-arm64-minimal-v11.1.2.tar.gz
+            qemu-android-arm64-minimal-v11.1.2.tar.gz.sha256
+          retention-days: 14
+          if-no-files-found: error
