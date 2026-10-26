@@ -42,6 +42,16 @@ Android APK (arm64-v8a)
 
 **Important:** The **ABI in \`arm64-v8a\` denotes the physical Android phone's CPU**, not the architecture of guest Windows/Linux. To emulate an x86 guest on Android ARM64, the library must still be an Android ARM64 ELF but support QEMU's **x86_64-softmmu** target.
 
+## QEMU runtime build lab (GitHub Actions)
+
+The project now has a **separate upstream QEMU 11.1.2 build experiment**:
+
+**[Open QEMU Runtime Lab](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/qemu-runtime-lab.yml)** · [Build details & artifact guide](docs/QEMU_RUNTIME_LAB.md).
+
+The Linux x86_64 QEMU build and QMP smoke test have passed. The first **Android ARM64 Bionic QEMU cross-compile also completed**, producing AArch64 ELF executables, but its initial artifact upload failed because Debian filenames with an epoch (e.g. `1:11.1.2`) contain a colon that GitHub's artifact uploader rejects. The workflow now repackages Android outputs into a safe-named archive, includes ELF dependency audits, and keeps the files **separate from the APK**.
+
+**Do not confuse a compiled Android executable with a compatible JNI library.** The current native app bridge requires `libqemu-system-*.so` exports and an audited runtime dependency/firmware bundle, which are not yet integrated. The experiment is not evidence of successful Android guest boot.
+
 ## Work still required before it can boot guests
 
 1. Select and pin a QEMU version and compile its **system emulator targets** using Android NDK/Clang and **Bionic libc**. Native Linux \`qemu-system-*\` binaries from a standard Ubuntu package won't work on Android.
