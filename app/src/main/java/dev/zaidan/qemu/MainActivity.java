@@ -107,10 +107,20 @@ public class MainActivity extends Activity {
         isoFile.setEllipsize(android.text.TextUtils.TruncateAt.END);
         mediaCopy.addView(isoFile);
         mediaRow.addView(mediaCopy, new LinearLayout.LayoutParams(0, -2, 1));
-        browseButton = flatButton("Choose ISO", false, this::pickIso);
-        LinearLayout.LayoutParams browseParams = new LinearLayout.LayoutParams(dp(114), dp(43));
+        browseButton = flatButton("Browse", false, this::pickIso);
+        LinearLayout.LayoutParams browseParams = new LinearLayout.LayoutParams(dp(82), dp(43));
         browseParams.leftMargin = dp(10);
         mediaRow.addView(browseButton, browseParams);
+        Button eject = flatButton("Clear", false, () -> {
+            if (importInProgress) return;
+            iso.setText("");
+            preferences.edit().remove("iso").remove("isoName").apply();
+            updateIsoLabel();
+            info("Boot ISO cleared; VM will boot from its disk.");
+        });
+        LinearLayout.LayoutParams ejectParams = new LinearLayout.LayoutParams(dp(63), dp(43));
+        ejectParams.leftMargin = dp(6);
+        mediaRow.addView(eject, ejectParams);
         isoPickerRow = mediaRow;
         root.addView(mediaRow);
         root.addView(spacer(12));
@@ -268,6 +278,89 @@ public class MainActivity extends Activity {
             : (chosen.isEmpty() ? "Boot ISO selected" : chosen));
     }
 
+    private void pickIso() {
+        if (importInProgress) return;
+        if (cpu != null && cpu.getSelectedItemPosition() == 2) {
+            info("ISO boot is available on x86/i386 profiles; ARM64 uses direct-kernel mode.");
+            return;
+        }
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.setType("*/*");
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivityForResult(intent, REQUEST_ISO);
+        } catch (android.content.ActivityNotFoundException e) {
+            info("No Android file manager available for choosing an ISO.");
+        }
+    }
+
+    @Override @SuppressWarnings("deprecation")
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_ISO || resultCode != RESULT_OK || data == null ||
+                data.getData() == null) return;
+        android.net.Uri chosen = data.getData();
+        if (android.os.Build.VERSION.SDK_INT < 29 &&
+                checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED) {
+            pendingLegacyIso = chosen;
+            requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE},
+                    REQUEST_LEGACY_STORAGE);
+            return;
+        }
+        importIso(chosen);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grants) {
+        super.onRequestPermissionsResult(requestCode, permissions, grants);
+        if (requestCode == REQUEST_LEGACY_STORAGE) {
+            if (grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED &&
+                    pendingLegacyIso != null) {
+                android.net.Uri next = pendingLegacyIso;
+                pendingLegacyIso = null;
+                importIso(next);
+            } else {
+                pendingLegacyIso = null;
+                info("Storage write permission is needed on Android 8–9 to import an ISO.");
+            }
+        }
+    }
+
+    private void importIso(android.net.Uri uri) {
+        if (importInProgress) return;
+        importInProgress = true;
+        browseButton.setEnabled(false);
+        startButton.setEnabled(false);
+        isoFile.setText("Importing ISO into Downloads…");
+        info("Copying ISO. Large images may take some time.");
+        IsoStorage.importDocument(this, uri, new IsoStorage.Listener() {
+            @Override public void onProgress(long bytes, long total) {
+                int percent = total > 0 ? (int) Math.min(100, bytes * 100 / total) : -1;
+                isoFile.setText(percent >= 0 ? "Importing ISO · " + percent + "%" :
+                        "Importing ISO · " + (bytes / 1048576L) + " MB");
+            }
+            @Override public void onReady(String path, String name) {
+                importInProgress = false;
+                browseButton.setEnabled(cpu.getSelectedItemPosition() != 2);
+                startButton.setEnabled(true);
+                iso.setText(path);
+                preferences.edit().putString("iso", path).putString("isoName", name).apply();
+                updateIsoLabel();
+                info("ISO imported. Storage path: " + path +
+                        ". Termux must have storage permission to boot it.");
+            }
+            @Override public void onError(String error) {
+                importInProgress = false;
+                browseButton.setEnabled(cpu.getSelectedItemPosition() != 2);
+                startButton.setEnabled(true);
+                updateIsoLabel();
+                info("ISO import failed: " + error);
+            }
+        });
+    }
+
     private boolean termuxInstalled() {
         try { getPackageManager().getPackageInfo("com.termux", 0); return true; }
         catch (PackageManager.NameNotFoundException e) { return false; }
@@ -309,10 +402,17 @@ public class MainActivity extends Activity {
         info("Checking QMP and VNC...");
         new Thread(() -> {
             boolean qmp = isListening(4444), vnc = isListening(5901);
-            runOnUiThread(() -> info(qmp && vnc ? "VM reachable: QMP + VNC active."
-               : qmp ? "QMP online, VNC not ready."
-               : vnc ? "VNC online, QMP not ready."
-               : "VM offline. Check run.log in Termux if a start was requested."));
+            runOnUiThread(() -> {
+                if (vmSummary != null) {
+                    vmSummary.setText(qmp && vnc ? "●  VM running · display ready" :
+                            (qmp || vnc) ? "●  VM starting / partially available" : "●  VM offline");
+                    vmSummary.setTextColor(qmp && vnc ? 0xFFA8D7C1 : 0xFFA6ADB9);
+                }
+                info(qmp && vnc ? "VM reachable: QMP + VNC active."
+                   : qmp ? "QMP online, VNC not ready."
+                   : vnc ? "VNC online, QMP not ready."
+                   : "VM offline. Check run.log in Termux if a start was requested.");
+            });
         }, "vm-status").start();
     }
 
@@ -352,6 +452,7 @@ public class MainActivity extends Activity {
     }
 
     private void startVm() {
+        if (importInProgress) { info("Finish importing the ISO before starting QEMU."); return; }
         if (startPending) { info("VM start already requested; check its status."); return; }
         startPending = true;
         new android.os.Handler(getMainLooper()).postDelayed(() -> startPending = false, 4000);
@@ -498,17 +599,22 @@ public class MainActivity extends Activity {
     }
 
     private EditText field(LinearLayout group, String title, String hint, String initial, boolean numeric) {
-        group.addView(spacer(9));
-        group.addView(label(title, 13, MUTED, false));
+        TextView caption = label(title, 12, 0xFFAAB2BD, false);
+        caption.setPadding(0, dp(2), 0, dp(7));
+        group.addView(caption);
         EditText edit = new EditText(this);
         edit.setSingleLine(true);
-        edit.setTextColor(TEXT);
-        edit.setHintTextColor(0xFF6884A7);
-        edit.setTextSize(15);
+        edit.setTextColor(0xFFF1F3F6);
+        edit.setHintTextColor(0xFF838B98);
+        edit.setTextSize(14);
         edit.setHint(hint);
         edit.setText(initial);
+        edit.setSelectAllOnFocus(false);
+        edit.setPadding(dp(11), 0, dp(10), 0);
+        edit.setBackground(surface(0xFF1B1F27, 0xFF363B45, 9));
         edit.setInputType(numeric ? InputType.TYPE_CLASS_NUMBER : InputType.TYPE_CLASS_TEXT);
-        group.addView(edit, new LinearLayout.LayoutParams(-1, dp(48)));
+        group.addView(edit, new LinearLayout.LayoutParams(-1, dp(46)));
+        group.addView(spacer(8));
         return edit;
     }
 
