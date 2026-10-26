@@ -1,0 +1,125 @@
+name: QEMU Runtime Lab (upstream source)
+# EXPERIMENT ONLY: builds QEMU. No APK modification, no release publication.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/qemu-runtime-lab.yml'
+      - 'scripts/qemu-lab/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qemu-lab-main
+  cancel-in-progress: true
+
+jobs:
+  linux-qemu-smoke:
+    name: Linux runner - QEMU compile and QMP smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    steps:
+      - name: Checkout lab scripts
+        uses: actions/checkout@v4
+      - name: Checkout official qemu/QEMU v11.1.2
+        uses: actions/checkout@v4
+        with:
+          repository: qemu/qemu
+          ref: v11.1.2
+          fetch-depth: 1
+          path: qemu-source
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build meson pkg-config python3-venv python3-pip \
+            libglib2.0-dev libpixman-1-dev libfdt-dev zlib1g-dev libslirp-dev
+      - name: Configure upstream QEMU
+        working-directory: qemu-source
+        run: |
+          ./configure --target-list=aarch64-softmmu,x86_64-softmmu \
+            --disable-werror --disable-docs --disable-tools \
+            --disable-gtk --disable-sdl --disable-curses \
+            --disable-spice --disable-guest-agent --disable-xen --disable-kvm \
+            --enable-vnc
+      - name: Compile Linux QEMU binaries
+        working-directory: qemu-source
+        run: |
+          ninja -C build -j 3 qemu-system-aarch64 qemu-system-x86_64
+          file build/qemu-system-aarch64 build/qemu-system-x86_64
+      - name: Run QMP smoke test without guest OS
+        run: python3 scripts/qemu-lab/qmp_smoke.py qemu-source/build
+      - name: Package Linux-only artifacts
+        run: |
+          mkdir -p out/linux-x86_64
+          cp qemu-source/build/qemu-system-aarch64 qemu-source/build/qemu-system-x86_64 out/linux-x86_64/
+          sha256sum out/linux-x86_64/qemu-system-* > out/linux-x86_64/SHA256SUMS
+          echo 'Linux x86_64 host binaries. NOT Android APK compatible.' > out/linux-x86_64/NOT_FOR_ANDROID.txt
+      - name: Upload Linux smoke binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-11.1.2-linux-x86_64-SMOKE-ONLY
+          path: out/linux-x86_64
+          if-no-files-found: error
+          retention-days: 7
+
+  android-arm64-cross:
+    name: Android ARM64 - QEMU NDK/Bionic cross-compile experiment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 170
+    steps:
+      - name: Checkout experiment scripts
+        uses: actions/checkout@v4
+      - name: Checkout Android build tooling (Termux recipes, CI only)
+        uses: actions/checkout@v4
+        with:
+          repository: termux/termux-packages
+          path: termux-packages
+          fetch-depth: 1
+      - name: Checkout same official qemu/QEMU tag
+        uses: actions/checkout@v4
+        with:
+          repository: qemu/qemu
+          ref: v11.1.2
+          fetch-depth: 1
+          path: termux-packages/sources/qemu
+      - name: Prepare local QEMU 11.1.2 source and Android patches
+        run: |
+          python3 scripts/qemu-lab/prepare_termux_recipe.py \
+            termux-packages/packages/qemu-system-x86-64-headless/build.sh \
+            termux-packages/sources/qemu
+          grep -E 'TERMUX_PKG_VERSION|TERMUX_PKG_SRCURL|TERMUX_PKG_SHA256|local QEMU_TARGETS=' \
+            termux-packages/packages/qemu-system-x86-64-headless/build.sh
+      - name: Cross-compile QEMU for Android/Bionic aarch64 in builder container
+        working-directory: termux-packages
+        run: |
+          chmod +x scripts/run-docker.sh
+          ./scripts/run-docker.sh ./build-package.sh -a aarch64 -f -I qemu-system-x86-64-headless
+      - name: Extract and verify Android AArch64 ELF outputs
+        run: |
+          mkdir -p out/android-arm64/packages out/android-arm64/extracted
+          find termux-packages/output -maxdepth 2 -type f -name '*qemu*deb' \
+            -print -exec cp -v {} out/android-arm64/packages/ \;
+          test -n "$(find out/android-arm64/packages -name '*.deb' -print -quit)"
+          for pkg in out/android-arm64/packages/*.deb; do
+            dpkg-deb -x "$pkg" out/android-arm64/extracted
+          done
+          find out/android-arm64/extracted -type f -name 'qemu-system-*' -exec file {} \;
+          find out/android-arm64/extracted -type f \
+            \( -name 'qemu-system-aarch64' -o -name 'qemu-system-x86_64' \) \
+            -exec readelf -h {} \; | tee out/android-arm64/ELF-HEADERS.txt
+          grep -q 'AArch64' out/android-arm64/ELF-HEADERS.txt
+          printf '%s\n' \
+            'Android Bionic AArch64 cross-build EXPERIMENT only.' \
+            'Not yet standalone; Termux-style dependencies and paths must be adapted.' \
+            'Executables are NOT native JNI libqemu-system-*.so libraries.' \
+            'Do not insert this package directly into app/src/main/jniLibs.' \
+            > out/android-arm64/NOT_APK_READY.txt
+      - name: Upload Android experiment result
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-11.1.2-android-arm64-EXPERIMENTAL
+          path: out/android-arm64
+          if-no-files-found: error
+          retention-days: 14
