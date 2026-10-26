@@ -29,6 +29,12 @@ final class IsoStorage {
     }
 
     static void importDocument(Activity activity, Uri source, Listener callback) {
+        importDocument(activity, source, "iso", callback);
+    }
+
+    static void importDocument(Activity activity, Uri source, String kind, Listener callback) {
+        if (!("iso".equals(kind) || "kernel".equals(kind) || "initrd".equals(kind) || "dtb".equals(kind)))
+            throw new IllegalArgumentException("Unsupported guest file type");
         Handler ui = new Handler(Looper.getMainLooper());
         new Thread(() -> {
             Uri created = null;
@@ -47,13 +53,14 @@ final class IsoStorage {
                         if (length >= 0 && !c.isNull(length)) size = c.getLong(length);
                     }
                 }
-                if (!displayName.toLowerCase(java.util.Locale.ROOT).endsWith(".iso")) {
+                if ("iso".equals(kind) && !displayName.toLowerCase(java.util.Locale.ROOT).endsWith(".iso")) {
                     throw new IOException("Choose a .iso image. Selected: " + displayName);
                 }
                 StatFs stats = new StatFs(Environment.getExternalStorageDirectory().getAbsolutePath());
                 if (size > 0 && size + 64L * 1024 * 1024 > stats.getAvailableBytes())
                     throw new IOException("Not enough free storage to import this ISO.");
-                final String publicName = "qemu-" + System.currentTimeMillis() + ".iso";
+                String suffix = "iso".equals(kind) ? ".iso" : "dtb".equals(kind) ? ".dtb" : ".img";
+                final String publicName = "qemu-" + kind + "-" + System.currentTimeMillis() + suffix;
                 String publicPath = "/sdcard/Download/QemuApplication/" + publicName;
                 OutputStream output;
                 if (Build.VERSION.SDK_INT >= 29) {
@@ -110,7 +117,7 @@ final class IsoStorage {
                 String message = ex.getMessage() == null ? ex.toString() : ex.getMessage();
                 ui.post(() -> callback.onError(message));
             }
-        }, "iso-import").start();
+        }, "guest-file-import").start();
     }
 
     private IsoStorage() {}

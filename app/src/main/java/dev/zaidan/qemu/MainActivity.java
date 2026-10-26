@@ -52,10 +52,12 @@ public class MainActivity extends Activity {
 
     private TextView isoFile, vmSummary;
     private View advancedPanel, isoPickerRow;
-    private Button browseButton, startButton;
+    private Button browseButton, startButton, advancedToggle;
     private boolean importInProgress;
     private android.net.Uri pendingLegacyIso;
     private static final int REQUEST_ISO = 201, REQUEST_LEGACY_STORAGE = 202;
+    private static final int REQUEST_KERNEL = 203, REQUEST_INITRD = 204, REQUEST_DTB = 205;
+    private int pendingImportKind = REQUEST_ISO;
 
     private void buildUi() {
         ScrollView scroll = new ScrollView(this);
@@ -63,7 +65,13 @@ public class MainActivity extends Activity {
         scroll.setBackgroundColor(0xFF101217);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(22), dp(20), dp(35));
+        root.setPadding(dp(18), dp(24), dp(18), dp(32));
+        root.setOnApplyWindowInsetsListener((view, insets) -> {
+            int top = Math.max(0, insets.getSystemWindowInsetTop());
+            int bottom = Math.max(0, insets.getSystemWindowInsetBottom());
+            view.setPadding(dp(18), top + dp(18), dp(18), bottom + dp(28));
+            return insets;
+        });
         scroll.addView(root);
         setContentView(scroll);
 
@@ -78,9 +86,9 @@ public class MainActivity extends Activity {
         LinearLayout brand = vertical();
         brand.setPadding(dp(11), dp(2), 0, 0);
         brand.addView(label("Qemu Application", 18, 0xFFE9ECF2, true));
-        brand.addView(label("LOCAL VIRTUAL MACHINE", 10, 0xFF8E949E, false));
+        brand.addView(label("Virtual machine manager", 11, 0xFF8E949E, false));
         header.addView(brand, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView version = label("0.3 DEV", 11, 0xFF8995A6, false);
+        TextView version = label("0.4", 11, 0xFF8995A6, false);
         version.setGravity(Gravity.CENTER_VERTICAL);
         header.addView(version);
         root.addView(header);
@@ -92,8 +100,8 @@ public class MainActivity extends Activity {
         divider(root);
         root.addView(spacer(21));
 
-        root.addView(label("Virtual machine", 24, 0xFFF1F3F6, true));
-        TextView subtitle = label("Choose a boot image and configure the guest.", 13, 0xFF9299A5, false);
+        root.addView(label("New machine", 23, 0xFFF1F3F6, true));
+        TextView subtitle = label("Configure, boot and manage a local VM.", 13, 0xFF9299A5, false);
         subtitle.setPadding(0, dp(5), 0, dp(23));
         root.addView(subtitle);
 
@@ -142,8 +150,12 @@ public class MainActivity extends Activity {
         LinearLayout resources = horizontal();
         resources.setGravity(Gravity.TOP);
         LinearLayout ramCell = vertical(), cpuCell = vertical(), diskCell = vertical();
-        resources.addView(ramCell, weightCell());
-        resources.addView(cpuCell, weightCell());
+        LinearLayout.LayoutParams first = weightCell();
+        first.rightMargin = dp(9);
+        LinearLayout.LayoutParams second = weightCell();
+        second.rightMargin = dp(9);
+        resources.addView(ramCell, first);
+        resources.addView(cpuCell, second);
         resources.addView(diskCell, weightCell());
         ram = field(ramCell, "RAM · MB", "1024", preferences.getString("ram", "1024"), true);
         cores = field(cpuCell, "CPU", "2", preferences.getString("cores", "2"), true);
@@ -165,10 +177,10 @@ public class MainActivity extends Activity {
         Button display = flatButton("Open display", false,
             () -> startActivity(new Intent(this, ViewerActivity.class)));
         Button stop = flatButton("Stop VM", false, this::stopVm);
-        LinearLayout.LayoutParams p1 = weightCell();
-        p1.rightMargin = dp(8);
+        LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(0, dp(48), 1);
+        p1.rightMargin = dp(10);
         actions.addView(display, p1);
-        actions.addView(stop, weightCell());
+        actions.addView(stop, new LinearLayout.LayoutParams(0, dp(48), 1));
         root.addView(actions);
         root.addView(spacer(26));
         divider(root);
@@ -177,24 +189,27 @@ public class MainActivity extends Activity {
         LinearLayout tools = horizontal();
         Button setup = flatButton("Setup QEMU", false, this::setupEnvironment);
         Button check = flatButton("Check status", false, this::checkStatus);
-        LinearLayout.LayoutParams toolsP = weightCell();
-        toolsP.rightMargin = dp(8);
+        LinearLayout.LayoutParams toolsP = new LinearLayout.LayoutParams(0, dp(47), 1);
+        toolsP.rightMargin = dp(10);
         tools.addView(setup, toolsP);
-        tools.addView(check, weightCell());
+        tools.addView(check, new LinearLayout.LayoutParams(0, dp(47), 1));
         root.addView(tools);
 
         root.addView(spacer(16));
-        Button advanced = flatButton("Advanced ARM64 options   ▾", false, () -> {
+        advancedToggle = flatButton("Advanced · ARM64 kernel   ▾", false, () -> {
             boolean show = advancedPanel.getVisibility() != View.VISIBLE;
             advancedPanel.setVisibility(show ? View.VISIBLE : View.GONE);
+            advancedToggle.setText(show ? "Advanced · ARM64 kernel   ▴" : "Advanced · ARM64 kernel   ▾");
         });
-        root.addView(advanced, new LinearLayout.LayoutParams(-1, dp(43)));
+        root.addView(advancedToggle, new LinearLayout.LayoutParams(-1, dp(47)));
 
         LinearLayout extras = vertical();
         extras.setPadding(0, dp(10), 0, dp(5));
-        kernel = field(extras, "Kernel image", "/sdcard/Download/Image", preferences.getString("kernel", ""), false);
-        initrd = field(extras, "Initrd · optional", "/sdcard/Download/initramfs.cpio.gz", preferences.getString("initrd", ""), false);
-        dtb = field(extras, "Device tree · optional", "/sdcard/Download/virt.dtb", preferences.getString("dtb", ""), false);
+        extras.addView(label("Select files from storage using the three-dot buttons.", 12, 0xFF8E949E, false));
+        extras.addView(spacer(12));
+        kernel = fileField(extras, "Kernel image", "Choose kernel…", preferences.getString("kernel", ""), REQUEST_KERNEL);
+        initrd = fileField(extras, "Initrd · optional", "No initrd", preferences.getString("initrd", ""), REQUEST_INITRD);
+        dtb = fileField(extras, "Device tree · optional", "No DTB", preferences.getString("dtb", ""), REQUEST_DTB);
         kernelArgs = field(extras, "Kernel arguments", "console=ttyAMA0", preferences.getString("kargs", "console=ttyAMA0"), false);
         advancedPanel = extras;
         extras.setVisibility(cpu.getSelectedItemPosition() == 2 ? View.VISIBLE : View.GONE);
@@ -210,7 +225,13 @@ public class MainActivity extends Activity {
                 boolean arm = position == 2;
                 isoPickerRow.setAlpha(arm ? 0.48f : 1f);
                 browseButton.setEnabled(!arm && !importInProgress);
-                if (arm) advancedPanel.setVisibility(View.VISIBLE);
+                if (arm) {
+                    advancedPanel.setVisibility(View.VISIBLE);
+                    advancedToggle.setText("Advanced · ARM64 kernel   ▴");
+                } else {
+                    advancedPanel.setVisibility(View.GONE);
+                    advancedToggle.setText("Advanced · ARM64 kernel   ▾");
+                }
             }
         });
         updateIsoLabel();
@@ -270,6 +291,104 @@ public class MainActivity extends Activity {
         return b;
     }
 
+    /** File-based ARM64 inputs: path is displayed but users can select actual files. */
+    private EditText fileField(LinearLayout parent, String title, String placeholder, String value, int code) {
+        section(parent, title.toUpperCase(java.util.Locale.ROOT));
+        LinearLayout row = horizontal();
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        EditText field = new EditText(this);
+        field.setSingleLine(true);
+        field.setText(value);
+        field.setTextSize(13);
+        field.setHint(placeholder);
+        field.setTextColor(0xFFEBEEF3);
+        field.setHintTextColor(0xFF929AA6);
+        field.setPadding(dp(13), 0, dp(10), 0);
+        field.setBackground(surface(0xFF1B1F27, 0xFF363B45, 10));
+        row.addView(field, new LinearLayout.LayoutParams(0, dp(49), 1));
+        Button more = flatButton("⋮", false, () -> pickGuestFile(code));
+        more.setContentDescription("Choose " + title + " file");
+        more.setTextSize(23);
+        LinearLayout.LayoutParams choose = new LinearLayout.LayoutParams(dp(52), dp(49));
+        choose.leftMargin = dp(9);
+        row.addView(more, choose);
+        parent.addView(row);
+        parent.addView(spacer(16));
+        return field;
+    }
+
+    private boolean isPickerRequest(int code) {
+        return code == REQUEST_ISO || code == REQUEST_KERNEL || code == REQUEST_INITRD || code == REQUEST_DTB;
+    }
+
+    private void pickGuestFile(int code) {
+        if (importInProgress) {
+            info("Finish the current file import first.");
+            return;
+        }
+        Intent choose = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        choose.addCategory(Intent.CATEGORY_OPENABLE);
+        choose.setType("*/*");
+        choose.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivityForResult(choose, code);
+        } catch (android.content.ActivityNotFoundException e) {
+            info("No system file picker is installed.");
+        }
+    }
+
+    private EditText selectedGuestField(int code) {
+        switch (code) {
+            case REQUEST_KERNEL: return kernel;
+            case REQUEST_INITRD: return initrd;
+            case REQUEST_DTB: return dtb;
+            default: return iso;
+        }
+    }
+
+    private String selectedGuestKey(int code) {
+        switch (code) {
+            case REQUEST_KERNEL: return "kernel";
+            case REQUEST_INITRD: return "initrd";
+            case REQUEST_DTB: return "dtb";
+            default: return "iso";
+        }
+    }
+
+    private void importGuestFile(android.net.Uri uri, int code) {
+        if (importInProgress) return;
+        importInProgress = true;
+        browseButton.setEnabled(false);
+        startButton.setEnabled(false);
+        info("Importing selected file to shared Downloads…");
+        IsoStorage.importDocument(this, uri, selectedGuestKey(code), new IsoStorage.Listener() {
+            @Override public void onProgress(long bytes, long total) {
+                int percent = total > 0 ? (int) Math.min(100, bytes * 100 / total) : -1;
+                String progress = percent >= 0 ? percent + "%" : bytes / 1048576L + " MB";
+                if (code == REQUEST_ISO) isoFile.setText("Importing ISO · " + progress);
+                info("Importing " + selectedGuestKey(code) + " · " + progress);
+            }
+            @Override public void onReady(String path, String name) {
+                importInProgress = false;
+                browseButton.setEnabled(cpu.getSelectedItemPosition() != 2);
+                startButton.setEnabled(true);
+                EditText target = selectedGuestField(code);
+                if (target != null) target.setText(path);
+                preferences.edit().putString(selectedGuestKey(code), path)
+                        .putString(selectedGuestKey(code) + "Name", name).apply();
+                if (code == REQUEST_ISO) updateIsoLabel();
+                info(name + " imported successfully. Termux needs storage permission.");
+            }
+            @Override public void onError(String error) {
+                importInProgress = false;
+                browseButton.setEnabled(cpu.getSelectedItemPosition() != 2);
+                startButton.setEnabled(true);
+                updateIsoLabel();
+                info("File import failed: " + error);
+            }
+        });
+    }
+
     private void updateIsoLabel() {
         if (isoFile == null) return;
         String chosen = preferences.getString("isoName", "");
@@ -284,32 +403,25 @@ public class MainActivity extends Activity {
             info("ISO boot is available on x86/i386 profiles; ARM64 uses direct-kernel mode.");
             return;
         }
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.setType("*/*");
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        try {
-            startActivityForResult(intent, REQUEST_ISO);
-        } catch (android.content.ActivityNotFoundException e) {
-            info("No Android file manager available for choosing an ISO.");
-        }
+        pickGuestFile(REQUEST_ISO);
     }
 
     @Override @SuppressWarnings("deprecation")
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQUEST_ISO || resultCode != RESULT_OK || data == null ||
+        if (!isPickerRequest(requestCode) || resultCode != RESULT_OK || data == null ||
                 data.getData() == null) return;
         android.net.Uri chosen = data.getData();
         if (android.os.Build.VERSION.SDK_INT < 29 &&
                 checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
                     != PackageManager.PERMISSION_GRANTED) {
             pendingLegacyIso = chosen;
+            pendingImportKind = requestCode;
             requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE},
                     REQUEST_LEGACY_STORAGE);
             return;
         }
-        importIso(chosen);
+        importGuestFile(chosen, requestCode);
     }
 
     @Override
@@ -320,45 +432,12 @@ public class MainActivity extends Activity {
                     pendingLegacyIso != null) {
                 android.net.Uri next = pendingLegacyIso;
                 pendingLegacyIso = null;
-                importIso(next);
+                importGuestFile(next, pendingImportKind);
             } else {
                 pendingLegacyIso = null;
                 info("Storage write permission is needed on Android 8–9 to import an ISO.");
             }
         }
-    }
-
-    private void importIso(android.net.Uri uri) {
-        if (importInProgress) return;
-        importInProgress = true;
-        browseButton.setEnabled(false);
-        startButton.setEnabled(false);
-        isoFile.setText("Importing ISO into Downloads…");
-        info("Copying ISO. Large images may take some time.");
-        IsoStorage.importDocument(this, uri, new IsoStorage.Listener() {
-            @Override public void onProgress(long bytes, long total) {
-                int percent = total > 0 ? (int) Math.min(100, bytes * 100 / total) : -1;
-                isoFile.setText(percent >= 0 ? "Importing ISO · " + percent + "%" :
-                        "Importing ISO · " + (bytes / 1048576L) + " MB");
-            }
-            @Override public void onReady(String path, String name) {
-                importInProgress = false;
-                browseButton.setEnabled(cpu.getSelectedItemPosition() != 2);
-                startButton.setEnabled(true);
-                iso.setText(path);
-                preferences.edit().putString("iso", path).putString("isoName", name).apply();
-                updateIsoLabel();
-                info("ISO imported. Storage path: " + path +
-                        ". Termux must have storage permission to boot it.");
-            }
-            @Override public void onError(String error) {
-                importInProgress = false;
-                browseButton.setEnabled(cpu.getSelectedItemPosition() != 2);
-                startButton.setEnabled(true);
-                updateIsoLabel();
-                info("ISO import failed: " + error);
-            }
-        });
     }
 
     private boolean termuxInstalled() {
@@ -454,11 +533,11 @@ public class MainActivity extends Activity {
     private void startVm() {
         if (importInProgress) { info("Finish importing the ISO before starting QEMU."); return; }
         if (startPending) { info("VM start already requested; check its status."); return; }
-        startPending = true;
-        new android.os.Handler(getMainLooper()).postDelayed(() -> startPending = false, 4000);
         persist();
         int memory = numeric(ram, 256, 8192), count = numeric(cores, 1, 8);
         if (memory == -1 || count == -1) { info("RAM: 256–8192 MB. Cores: 1–8."); return; }
+        startPending = true;
+        new android.os.Handler(getMainLooper()).postDelayed(() -> startPending = false, 4000);
         if (cpu.getSelectedItemPosition() == 2) { startArm64(memory, count); return; }
         String bootIso = iso.getText().toString().trim();
         if (!bootIso.isEmpty() && !(bootIso.startsWith("/sdcard/") ||

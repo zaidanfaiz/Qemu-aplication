@@ -16,7 +16,7 @@
 
 Qemu Application is an **Android APK** for launching software-emulated QEMU virtual machines locally on a phone. The APK provides a machine configuration UI, QCOW2 disk creation, a VNC viewer, and QMP/PID-based stop controls.
 
-**Status: 0.3.0 developer preview.** The QEMU binaries run inside a separately installed **Termux** environment and are **not bundled in the APK**. Root is not required for TCG software emulation. Android hardware virtualization, iOS/XNU boot, and a fully standalone runtime are **not implemented**.
+**Status: 0.4.0 developer preview.** The QEMU binaries run inside a separately installed **Termux** environment and are **not bundled in the APK**. Root is not required for TCG software emulation. Android hardware virtualization, iOS/XNU boot, and a fully standalone runtime are **not implemented**.
 
 ## Features
 
@@ -132,6 +132,18 @@ After installing the guest OS to QCOW2, tap **Clear** next to **Browse**, then s
 ### 6. Stop the virtual machine
 
 Prefer shutdown from inside the guest OS if it is responding. The APK's **Stop VM** button sends QMP `quit` (an **immediate VM termination**, not an ACPI shutdown). If QMP cannot be contacted, the app requests Termux to send TERM to the PID recorded by its own launcher after verifying it is a QEMU process.
+
+## Pick a custom ARM64 kernel, initrd and DTB
+
+1. Select **aarch64 (kernel)** in Architecture.
+2. Expand **Advanced · ARM64 kernel** if it isn't already open.
+3. Tap the **⋮** beside **Kernel image**, choose the kernel in Android's system file picker.
+4. Optionally select an **Initrd** and **Device tree** using their respective **⋮** buttons.
+5. Wait for import to finish. The app places files under `Download/QemuApplication` and fills their absolute paths automatically.
+6. Set kernel arguments if required by the guest, then create a virtual disk and start QEMU.
+7. If the screen stays black, read `~/qemu-aplication/run.log` for serial output.
+
+This is a generic QEMU `virt` machine: a custom iPhone XNU kernel might not boot without a compatible loader and hardware model. File selection alone does not add that support.
 
 ## Experimental ARM64 boot
 
