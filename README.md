@@ -9,7 +9,7 @@
 ## Features
 
 - Android APK built automatically by GitHub Actions
-- Basic x86_64/i386 VM configuration, vCPU and RAM controls
+- x86_64/i386 VM presets and an experimental ARM64 direct-kernel preset, vCPU and RAM controls
 - Create an 8 GB (configurable 1–128 GB) QCOW2 virtual disk inside Termux
 - Boot an ISO stored on Android/Termux-accessible storage
 - Start a local QEMU software-emulation process through Termux `RUN_COMMAND`
@@ -34,7 +34,7 @@ In Termux:
 
 ```bash
 pkg update && pkg upgrade
-pkg install qemu-system-x86-64-headless qemu-utils
+pkg install qemu-system-x86-64-headless qemu-system-aarch64-headless qemu-utils
 termux-setup-storage
 mkdir -p ~/.termux
 echo 'allow-external-apps = true' >> ~/.termux/termux.properties
@@ -54,13 +54,19 @@ Then fully restart Termux. In Android **Settings → Apps → Qemu Application �
 
 The virtual disk is stored at `$HOME/qemu-aplication/disk.qcow2` inside Termux. An existing disk is **not** overwritten by Create virtual disk. Only one VM at a time is supported due to fixed local ports. You can stop the VM using **Graceful shutdown** in the main app, which issues QMP `quit` (power off, not ACPI OS shutdown).
 
+## Experimental ARM64 direct-kernel mode
+
+Select **aarch64 (kernel)**, provide an absolute path to a kernel image compatible with QEMU's `-kernel` loader, optionally supply initrd/DTB/boot arguments, and create a disk first. Serial output is saved to `~/qemu-aplication/run.log` in Termux. VNC may remain blank with serial-only ARM64 guests.
+
+**This is not iOS boot support.** The [ios-emulator](https://github.com/zaidanfaiz/ios-emulator) project is a separate patched-XNU research tree with its own boot requirements. Its XNU artifact is not guaranteed to load via the generic `virt` machine or QEMU's kernel loader.
+
 ## Security and limitations
 
 - QEMU software TCG acceleration runs **on the Android phone** under Termux, not on a remote server. Performance can be slow. KVM acceleration is not assumed to exist.
 - VNC has no password, but is bound to **loopback only**. QMP is also loopback only. Other apps running on the same phone may still connect to loopback ports; do not run untrusted local apps alongside sensitive guests.
 - The VNC client handles RAW updates, basic mouse/keyboard, and no-auth RFB; clipboard, audio, multi-touch, resizing and accelerated graphics aren't implemented.
 - The app is an actual installable APK, **but not a fully self-contained QEMU package**. Bundling a QEMU ARM64 runtime and its native dependencies is a separate milestone.
-- `x86_64`/`i386` VM profiles are the only implemented presets so far. ARM64, UEFI and iOS-specific hardware/device boot are not supported in this developer preview.
+- x86_64/i386 and experimental ARM64 direct-kernel presets are available. ARM64 ISO/UEFI boot and iOS-specific device emulation are not implemented.
 - The research project [ios-emulator](https://github.com/zaidanfaiz/ios-emulator) is separate. Its experimental XNU boot environment, kernel patches, guest images, custom device tree and boot chain are **not included** here. This project does not claim iOS 16 boots on Android.
 
 ## Architecture
@@ -93,7 +99,8 @@ This application's original code is MIT-licensed. **QEMU and Termux are separate
 - [x] Functional Termux bridge, disk creation, QEMU launch, basic VNC, QMP
 - [ ] Native ARM64 QEMU package bundled in APK (remove Termux dependency)
 - [ ] USB/HID polish, guest audio, complete keyboard, clipboard
-- [ ] UEFI, ARM64 machines, multi-VM profiles, image import
+- [x] Experimental ARM64 direct-kernel profile
+- [ ] ARM64 UEFI/ISO boot, multi-VM profiles, image import
 - [ ] Separate compatibility research for the iOS/XNU project
 
 Contributions and experimental testing are welcome. Report crash logs and the phone's Android version in Issues.
