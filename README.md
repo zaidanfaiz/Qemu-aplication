@@ -2,16 +2,16 @@
   <img src="app/src/main/res/drawable-nodpi/qemu_brand.webp" alt="Qemu Application" width="135">
 </p>
 
-# Qemu Application — Native QEMU migration
+# Qemu Application — Android native migration (main)
 
-![Status](https://img.shields.io/badge/branch-native--qemu-orange)
-[![Android CI](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/build-apk.yml/badge.svg?branch=native-qemu)](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/build-apk.yml)
+![Status](https://img.shields.io/badge/native%20engine-integration%20pending-orange)
+[![Android CI](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/build-apk.yml/badge.svg?branch=main)](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/build-apk.yml)
 
 > **ENGINE INTEGRATION IN PROGRESS — NOT YET A WORKING STANDALONE QEMU APK**
 >
-> This experimental branch removes all dependence on Termux. It compiles a **native Android NDK/JNI host adapter**, not the QEMU emulator itself. Until Android ARM64-compatible QEMU system libraries and guest firmware are built, bundled, and verified, **it cannot boot a VM**. A green GitHub Actions build only means the application and JNI adapter compile.
+> The main branch now removes the Termux dependency from the app architecture. It compiles a **native Android NDK/JNI host adapter**, not the QEMU emulator itself. Until Android ARM64-compatible QEMU system libraries and guest firmware are built, bundled, and verified, **it cannot boot a VM**. A green GitHub Actions build only means the application and JNI adapter compile.
 
-The working **Termux-based v0.4** remains on [main](https://github.com/zaidanfaiz/Qemu-aplication/tree/main). This branch exists to avoid falsely replacing a working prototype with a nonfunctional "native" one.
+**Main now tracks this native prototype**, at the maintainer's request. The earlier Termux-based v0.4 remains in Git history and prior downloadable releases, but does not represent the current source. The native prototype is not capable of booting guests yet.
 
 ## What changed here
 
@@ -73,7 +73,7 @@ gradle assembleDebug
 
 GitHub Actions builds \`native-qemu\` as a separately labeled artifact **NativeBridge-Prototype-NOT-QEMU**, and **never publishes it to the working main release**. It also warns when QEMU core libraries are absent from the APK.
 
-This code is **not a ready-to-use native emulator** until the runtime integration criteria above pass. Keep using [main Releases](https://github.com/zaidanfaiz/Qemu-aplication/releases/tag/dev-latest) for the prior Termux-based prototype.
+This code is **not a ready-to-use native emulator** until the runtime integration criteria above pass. The existing [legacy dev-latest Release](https://github.com/zaidanfaiz/Qemu-aplication/releases/tag/dev-latest) may still contain the earlier Termux-based build; it is **not** the current native main APK.
 
 ## Experimental user flow once the engine is bundled
 
