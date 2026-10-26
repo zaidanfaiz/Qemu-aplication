@@ -1,6 +1,10 @@
 package dev.zaidan.qemu;
 
-import android.Manifest;
+import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.net.Uri;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -34,6 +38,9 @@ public class MainActivity extends Activity {
     private Spinner cpu;
     private TextView status;
     private SharedPreferences preferences;
+    private boolean startPending;
+    private static final String FIRST_ACCESS_COMMAND =
+      "mkdir -p ~/.termux; printf '\\nallow-external-apps = true\\n' >> ~/.termux/termux.properties; termux-reload-settings";
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -55,6 +62,11 @@ public class MainActivity extends Activity {
 
         TextView eyebrow = label("ANDROID • QEMU CONTROL CENTER", 12, 0xFF60A5FA, true);
         root.addView(eyebrow);
+        android.widget.ImageView brand = new android.widget.ImageView(this);
+        brand.setImageResource(R.drawable.qemu_brand);
+        LinearLayout.LayoutParams brandLayout = new LinearLayout.LayoutParams(dp(82), dp(82));
+        brandLayout.topMargin = dp(10);
+        root.addView(brand, brandLayout);
         TextView headline = label("Virtual machines\non your phone.", 31, TEXT, true);
         headline.setPadding(0, dp(10), 0, dp(8));
         root.addView(headline);
@@ -82,23 +94,82 @@ public class MainActivity extends Activity {
         cores = field(form, "vCPU cores", "2", preferences.getString("cores", "2"), true);
         diskSize = field(form, "New disk size (GB)", "8", preferences.getString("disk", "8"), true);
         form.addView(spacer(6));
+        action(form, "Setup QEMU", true, this::setupEnvironment);
+        action(form, "Check VM status", false, this::checkStatus);
         action(form, "Create virtual disk", false, () -> createDisk());
         action(form, "▶  Start QEMU", true, () -> startVm());
         action(form, "Open VNC display", false, () -> startActivity(new Intent(this, ViewerActivity.class)));
         action(form, "■  Stop VM (QMP quit)", false, () -> stopVm());
 
-        root.addView(spacer(17));
-        LinearLayout setup = panel(root);
-        setup.addView(label("FIRST-TIME SETUP", 12, 0xFF60A5FA, true));
-        setup.addView(spacer(8));
-        setup.addView(label("1. Install Termux from F-Droid or official GitHub.\n2. In Termux: pkg update && pkg install qemu-system-x86-64-headless qemu-system-i386-headless qemu-system-aarch64-headless qemu-utils\n3. Run: termux-setup-storage\n4. Run: mkdir -p ~/.termux && echo 'allow-external-apps = true' >> ~/.termux/termux.properties\n5. In Android app settings, grant Qemu Application permission to run commands in Termux. Restart Termux.\n6. Put a compatible boot ISO in Download, enter its path, create a disk, start VM, then open VNC.", 13, MUTED, false));
-        action(setup, "Open Termux", false, () -> openTermux());
-
+        root.addView(spacer(12));
+        root.addView(label("Install Termux and authorize it once. Setup then installs QEMU packages automatically.", 12, MUTED, false));
         root.addView(spacer(14));
         status = label("Idle • Ready to configure", 13, 0xFF93C5FD, false);
         root.addView(status);
         root.addView(spacer(12));
         root.addView(label("Developer preview: Termux-based QEMU. Experimental ARM64 kernel mode is not an iOS boot implementation.", 12, MUTED, false));
+    }
+
+    private boolean termuxInstalled() {
+        try { getPackageManager().getPackageInfo("com.termux", 0); return true; }
+        catch (PackageManager.NameNotFoundException e) { return false; }
+    }
+
+    private void setupEnvironment() {
+        if (!termuxInstalled()) {
+            new AlertDialog.Builder(this).setTitle("Termux required")
+              .setMessage("Install official Termux from GitHub or F-Droid and open it once.")
+              .setPositiveButton("Get Termux", (dialog, which) -> startActivity(
+                  new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/termux/termux-app/releases"))))
+              .setNegativeButton("Cancel", null).show();
+            return;
+        }
+        if (!preferences.getBoolean("first_auth_ack", false)) {
+            new AlertDialog.Builder(this).setTitle("One-time Termux permission")
+              .setMessage("Android blocks other apps from modifying Termux settings. Paste the command copied to clipboard in Termux, then return and tap Setup again. Grant 'Run commands in Termux environment' under Android App info > Permissions > Additional permissions. This initial authorization cannot be bypassed.")
+              .setPositiveButton("Copy command & open", (dialog, which) -> {
+                  ClipboardManager clip = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                  clip.setPrimaryClip(ClipData.newPlainText("Termux setup permission", FIRST_ACCESS_COMMAND));
+                  preferences.edit().putBoolean("first_auth_ack", true).apply();
+                  info("Command copied. Run it in Termux and return to Setup.");
+                  openTermux();
+              })
+              .setNegativeButton("Cancel", null).show();
+            return;
+        }
+        String script = "set -euo pipefail; DIR=\"$HOME/qemu-aplication\"; mkdir -p \"$DIR\"; rm -f \"$DIR/setup.status\"; { echo \"[1/3] Updating Termux package index\"; pkg update -y; echo \"[2/3] Installing QEMU packages\"; pkg install -y qemu-system-x86-64-headless qemu-system-i386-headless qemu-system-aarch64-headless qemu-utils; echo \"[3/3] Configuring storage\"; termux-setup-storage || true; command -v qemu-img; command -v qemu-system-x86_64; command -v qemu-system-i386; command -v qemu-system-aarch64; printf \"READY\\\\n\" > \"$DIR/setup.status\"; echo \"Setup complete\"; } 2>&1 | tee \"$DIR/setup.log\"";
+        if (checkSelfPermission(TERMUX_PERMISSION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{TERMUX_PERMISSION}, 100);
+            info("Grant Run commands in Termux environment, then tap Setup again.");
+            return;
+        }
+        runTermux(script, "Setup requested in Termux. Watch the terminal; setup.status appears after package verification.", false);
+        openTermux();
+    }
+
+    private void checkStatus() {
+        info("Checking QMP and VNC...");
+        new Thread(() -> {
+            boolean qmp = isListening(4444), vnc = isListening(5901);
+            runOnUiThread(() -> info(qmp && vnc ? "VM reachable: QMP + VNC active."
+               : qmp ? "QMP online, VNC not ready."
+               : vnc ? "VNC online, QMP not ready."
+               : "VM offline. Check run.log in Termux if a start was requested."));
+        }, "vm-status").start();
+    }
+
+    private boolean isListening(int port) {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress("127.0.0.1", port), 1200);
+            return true;
+        } catch (Exception e) { return false; }
+    }
+
+    private String launchGuard() {
+        return "set -eu; DIR=\\"$HOME/qemu-aplication\\"; mkdir -p \\"$DIR\\"; " +
+          "if [ ! -f \\"$DIR/setup.status\\" ]; then echo 'Run Setup first' > \\"$DIR/run.log\\"; exit 1; fi; " +
+          "PID=\\"$DIR/qemu.pid\\"; if [ -f \\"$PID\\" ]; then old=$(cat \\"$PID\\" 2>/dev/null || true); " +
+          "if [ -n \\"$old\\" ] && kill -0 \\"$old\\" 2>/dev/null; then echo 'VM already running' > \\"$DIR/run.log\\"; exit 1; fi; rm -f \\"$PID\\"; fi; ";
     }
 
     private void persist() {
@@ -140,7 +211,7 @@ public class MainActivity extends Activity {
         String boot = bootIso.isEmpty() ? "c" : "d";
         String optIso = bootIso.isEmpty() ? "" :
              " -drive file=" + quote(bootIso) + ",media=cdrom,readonly=on";
-        String command = "mkdir -p \"$HOME/qemu-aplication\"; " +
+        String command = launchGuard() +
           "if ! command -v " + binary + " >/dev/null; then echo 'QEMU package missing' > \"$HOME/qemu-aplication/run.log\"; exit 127; fi; " +
           "if [ ! -f \"$HOME/qemu-aplication/disk.qcow2\" ]; then echo 'Create disk first' > \"$HOME/qemu-aplication/run.log\"; exit 1; fi; " +
           "exec " + binary + " -machine pc -accel tcg,thread=multi -cpu max -smp " + count +
@@ -211,6 +282,10 @@ public class MainActivity extends Activity {
     }
 
     private void runTermux(String script, String message) {
+        runTermux(script, message, true);
+    }
+
+    private void runTermux(String script, String message, boolean background) {
         PackageManager pm = getPackageManager();
         try { pm.getPackageInfo("com.termux", 0); }
         catch (PackageManager.NameNotFoundException e) { info("Install the official Termux app first."); return; }
@@ -224,7 +299,7 @@ public class MainActivity extends Activity {
         intent.putExtra("com.termux.RUN_COMMAND_PATH", TERMUX_BASH);
         intent.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", new String[]{"-lc", script});
         intent.putExtra("com.termux.RUN_COMMAND_WORKDIR", TERMUX_HOME);
-        intent.putExtra("com.termux.RUN_COMMAND_BACKGROUND", true);
+        intent.putExtra("com.termux.RUN_COMMAND_BACKGROUND", background);
         try { startService(intent); info(message); }
         catch (Exception e) { info("Termux rejected command: " + e.getMessage()); }
     }
