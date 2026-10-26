@@ -474,7 +474,7 @@ public class MainActivity extends Activity {
           "if ! command -v " + binary + " >/dev/null; then echo 'QEMU package missing' > \"$HOME/qemu-aplication/run.log\"; exit 127; fi; " +
           "if [ ! -f \"$HOME/qemu-aplication/disk.qcow2\" ]; then echo 'Create disk first' > \"$HOME/qemu-aplication/run.log\"; exit 1; fi; " +
           (bootIso.isEmpty() ? "" : "if [ ! -r " + quote(bootIso) + " ]; then echo 'ISO cannot be read' > \"$DIR/run.log\"; exit 1; fi; ") +
-          "echo $ > \"$PID\"; exec " + binary + " -machine pc -accel tcg,thread=multi -cpu max -smp " + count +
+          "echo $$ > \"$PID\"; exec " + binary + " -machine pc -accel tcg,thread=multi -cpu max -smp " + count +
           " -m " + memory + " -boot order=" + boot +
           " -drive file=\"$HOME/qemu-aplication/disk.qcow2\",if=ide,format=qcow2" + optIso +
           " -usb -device usb-tablet -vga std" +
@@ -510,7 +510,7 @@ public class MainActivity extends Activity {
           "if [ ! -r " + quote(k) + " ]; then echo 'ARM64 kernel cannot be read' > \"$DIR/run.log\"; exit 1; fi; " +
           (r.isEmpty() ? "" : "if [ ! -r " + quote(r) + " ]; then echo 'initrd cannot be read' > \"$DIR/run.log\"; exit 1; fi; ") +
           (d.isEmpty() ? "" : "if [ ! -r " + quote(d) + " ]; then echo 'DTB cannot be read' > \"$DIR/run.log\"; exit 1; fi; ") +
-          "echo $ > \"$PID\"; exec qemu-system-aarch64 -machine virt,accel=tcg -cpu cortex-a72" +
+          "echo $$ > \"$PID\"; exec qemu-system-aarch64 -machine virt,accel=tcg -cpu cortex-a72" +
           " -smp " + count + " -m " + memory + " -kernel " + quote(k) + other +
           " -append " + quote(args) +
           " -drive file=\"$HOME/qemu-aplication/disk.qcow2\",format=qcow2,if=virtio" +
