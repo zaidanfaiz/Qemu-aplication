@@ -2,7 +2,7 @@ name: Android APK CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, native-qemu]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -33,16 +33,31 @@ jobs:
           test -n "$SDKMANAGER"
           "$SDKMANAGER" --list_installed | head -45
           "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0"
+      - name: Install native Android toolchain
+        if: github.ref == 'refs/heads/native-qemu'
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          "$SDKMANAGER" --install "ndk;27.2.12479018" "cmake;3.22.1"
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
       - name: Build installable debug APK
         run: gradle --no-daemon --stacktrace assembleDebug
+      - name: Check native library packaging
+        if: github.ref == 'refs/heads/native-qemu'
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          unzip -l "$APK" | grep 'lib/arm64-v8a/libqemu_bridge.so'
+          if unzip -l "$APK" | grep -E 'lib/arm64-v8a/libqemu-system-(x86_64|aarch64).so'; then
+            echo "Native QEMU library detected; physical-device boot testing is still required."
+          else
+            echo "::warning::JNI bridge compiled; QEMU core is NOT bundled yet. APK cannot boot guests."
+          fi
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: QemuApplication-debug-apk
+          name: ${{ github.ref == 'refs/heads/native-qemu' && 'NativeBridge-Prototype-NOT-QEMU' || 'QemuApplication-debug-apk' }}
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
