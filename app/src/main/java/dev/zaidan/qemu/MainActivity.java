@@ -85,13 +85,13 @@ public class MainActivity extends Activity {
         action(form, "Create virtual disk", false, () -> createDisk());
         action(form, "▶  Start QEMU", true, () -> startVm());
         action(form, "Open VNC display", false, () -> startActivity(new Intent(this, ViewerActivity.class)));
-        action(form, "■  Graceful shutdown (QMP quit)", false, () -> stopVm());
+        action(form, "■  Stop VM (QMP quit)", false, () -> stopVm());
 
         root.addView(spacer(17));
         LinearLayout setup = panel(root);
         setup.addView(label("FIRST-TIME SETUP", 12, 0xFF60A5FA, true));
         setup.addView(spacer(8));
-        setup.addView(label("1. Install Termux from F-Droid or official GitHub.\n2. In Termux: pkg update && pkg install qemu-system-x86-64-headless qemu-system-aarch64-headless qemu-utils\n3. Run: termux-setup-storage\n4. Run: mkdir -p ~/.termux && echo 'allow-external-apps = true' >> ~/.termux/termux.properties\n5. In Android app settings, grant Qemu Application permission to run commands in Termux. Restart Termux.\n6. Put a compatible boot ISO in Download, enter its path, create a disk, start VM, then open VNC.", 13, MUTED, false));
+        setup.addView(label("1. Install Termux from F-Droid or official GitHub.\n2. In Termux: pkg update && pkg install qemu-system-x86-64-headless qemu-system-i386-headless qemu-system-aarch64-headless qemu-utils\n3. Run: termux-setup-storage\n4. Run: mkdir -p ~/.termux && echo 'allow-external-apps = true' >> ~/.termux/termux.properties\n5. In Android app settings, grant Qemu Application permission to run commands in Termux. Restart Termux.\n6. Put a compatible boot ISO in Download, enter its path, create a disk, start VM, then open VNC.", 13, MUTED, false));
         action(setup, "Open Termux", false, () -> openTermux());
 
         root.addView(spacer(14));

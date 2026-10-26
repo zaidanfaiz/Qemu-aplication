@@ -34,7 +34,7 @@ In Termux:
 
 ```bash
 pkg update && pkg upgrade
-pkg install qemu-system-x86-64-headless qemu-system-aarch64-headless qemu-utils
+pkg install qemu-system-x86-64-headless qemu-system-i386-headless qemu-system-aarch64-headless qemu-utils
 termux-setup-storage
 mkdir -p ~/.termux
 echo 'allow-external-apps = true' >> ~/.termux/termux.properties
