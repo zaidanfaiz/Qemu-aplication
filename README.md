@@ -16,11 +16,11 @@
 
 Qemu Application is an **Android APK** for launching software-emulated QEMU virtual machines locally on a phone. The APK provides a machine configuration UI, QCOW2 disk creation, a VNC viewer, and QMP/PID-based stop controls.
 
-**Status: 0.2.0 developer preview.** The QEMU binaries run inside a separately installed **Termux** environment and are **not bundled in the APK**. Root is not required for TCG software emulation. Android hardware virtualization, iOS/XNU boot, and a fully standalone runtime are **not implemented**.
+**Status: 0.3.0 developer preview.** The QEMU binaries run inside a separately installed **Termux** environment and are **not bundled in the APK**. Root is not required for TCG software emulation. Android hardware virtualization, iOS/XNU boot, and a fully standalone runtime are **not implemented**.
 
 ## Features
 
-- One **Setup QEMU** button replaces the long first-run instruction panel
+- Minimal native-style screen: boot media, architecture, resources, and primary VM actions\n- **Browse / Choose ISO** opens Android's system file picker (SAF), with progress and **Clear** to boot from the virtual disk\n- One **Setup QEMU** button replaces the long first-run instruction panel
 - Installs QEMU packages through Termux after the mandatory one-time authorization
 - Configures x86_64, i386, and experimental AArch64 direct-kernel guests
 - Creates a persistent QCOW2 disk without silently overwriting an existing disk
@@ -45,8 +45,8 @@ The development APK uses the Android **debug** signing certificate. It is intend
 3. Pada penggunaan pertama, app menyalin perintah otorisasi. Paste di Termux, jalankan, lalu berikan izin **Run commands in Termux environment** untuk Qemu Application melalui pengaturan Android.
 4. Kembali ke APK, tekan **Setup QEMU** lagi. Perintah instalasi QEMU dikirim ke Termux. Tunggu sampai selesai dan izinkan akses storage jika diminta.
 5. Taruh ISO Linux di `Download`; pilih `x86_64`, RAM 1024 MB, 2 core, dan buat disk lewat **Create virtual disk**.
-6. Isi path ISO lengkap, misalnya `/sdcard/Download/alpine-linux.iso`. Tekan **Start QEMU**, lalu **Check VM status**.
-7. Setelah VNC aktif, tekan **Open VNC display**. Untuk berhenti, matikan OS dari dalam guest atau gunakan tombol **Stop VM** (penghentian paksa).
+6. Nama ISO akan muncul otomatis. Tekan **Start virtual machine**, lalu **Check status**. Untuk boot dari disk setelah instalasi OS, tekan **Clear** pada ISO.
+7. Setelah VNC aktif, tekan **Open display**. Untuk berhenti, matikan OS dari dalam guest atau gunakan tombol **Stop VM** (penghentian paksa).
 
 **Catatan:** Tanpa izin awal Termux, Android tidak mengizinkan instalasi otomatis melalui APK lain. Jika setup gagal, buka `~/qemu-aplication/setup.log` di Termux. Bila sesi setup tidak tampil pada Android 10+, coba buka notifikasi Termux atau izinkan **Display over other apps** untuk Termux sesuai pengaturan perangkat.
 
@@ -86,7 +86,18 @@ termux-setup-storage
 
 **Important:** manual package installation alone does not create the app's `setup.status` file. After fixing permissions, press **Setup QEMU** again so the app can verify binaries and create its setup marker.
 
-### 3. Prepare a Linux ISO
+### 3. Pick a Linux ISO (no typing file paths)
+
+Download an x86_64 Linux installer ISO to your phone, then:
+
+1. Open **Qemu Application → Boot media → Browse**.
+2. Android's system file picker opens. Select a file ending in `.iso`, from Downloads or another compatible document provider.
+3. The app **copies the ISO** to `Download/QemuApplication/` using a streaming import. Watch the displayed progress; **do not start the VM until import finishes**.
+4. After import, the selected filename appears under *Installer image*. Press **Clear** whenever you want to eject the ISO and boot from the installed system on QCOW2.
+
+The import creates its own copy, so large ISOs need enough spare storage. To free space, delete old files inside `Download/QemuApplication` using Android's file manager. Android 8–9 may ask for legacy write permission. On Android 10+, the app uses MediaStore. Termux still needs its own storage permission.
+
+### 3A. Manual path reference (optional)
 
 Download a legally distributable **x86_64 Linux installer ISO** appropriate for QEMU (start with a lightweight guest, such as Alpine Linux). Place the ISO in the phone's Download folder. Example absolute file path:
 
@@ -132,7 +143,7 @@ This is a **generic QEMU `virt`** machine. It does not emulate an iPhone SoC or 
 | --- | --- |
 | Setup does not open a Termux session | Open Termux once, run the one-time authorization command, grant `RUN_COMMAND`, and tap Setup again. On Android 10+, also check Termux notification or optional Display over other apps permission |
 | Automatic install fails | Check internet, Termux repository mirror, and `~/qemu-aplication/setup.log`; rerun Setup |
-| ISO cannot be read | Confirm exact filename/path, storage permission, and that Termux can read the file |
+| ISO cannot be read | Select via **Browse** and finish import. Confirm storage permission inside Termux and that the imported file exists at `/sdcard/Download/QemuApplication/` |
 | Start request sent but VM is offline | Review `~/qemu-aplication/run.log` in Termux; check QEMU binary, disk, and port conflicts |
 | VM already running | Don't start another instance with the same disk or ports; stop the existing VM first |
 | VNC is black | Wait for guest boot; retry viewer; ARM64 serial-only guests may have no graphical console |
@@ -159,6 +170,12 @@ gradle assembleDebug
 ```
 
 The APK is written to `app/build/outputs/apk/debug/app-debug.apk`. GitHub Actions automatically builds and uploads the APK after commits to `main`.
+
+## UI and ISO file handling
+
+The default screen intentionally shows only the core tasks. Select architecture, pick an ISO with **Browse**, set resources, create a disk, start, and open the display. **Advanced ARM64 options** remain collapsed unless AArch64 is selected. **Environment** contains setup and status diagnostics.
+
+The Android document picker provides a `content://` URI, which **cannot simply be passed to Termux's QEMU as a filesystem path**. The app streams the selected ISO into MediaStore Downloads with a unique filename, marks the item complete only when copying succeeds, cleans up incomplete imports on error, and then supplies QEMU a local public-storage path. A valid storage grant to Termux is still required.
 
 ## Security / compatibility notes
 
