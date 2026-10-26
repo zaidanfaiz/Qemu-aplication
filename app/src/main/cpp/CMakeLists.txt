@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(qemu_bridge LANGUAGES CXX)
+add_library(qemu_bridge SHARED qemu_bridge.cpp)
+target_compile_features(qemu_bridge PRIVATE cxx_std_17)
+target_link_libraries(qemu_bridge PRIVATE dl log)
+target_link_options(qemu_bridge PRIVATE "-Wl,-z,max-page-size=16384")

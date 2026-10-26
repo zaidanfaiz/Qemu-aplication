@@ -1,730 +1,337 @@
 package dev.zaidan.qemu;
 
-import android.app.AlertDialog;
-import android.content.ClipData;
-import android.content.ClipboardManager;
-import android.content.Context;
-import android.net.Uri;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
-import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
+import android.os.StatFs;
+import android.provider.OpenableColumns;
+import android.database.Cursor;
 import android.view.Gravity;
 import android.view.View;
-import android.widget.Button;
-import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.Spinner;
-import android.widget.ArrayAdapter;
+import android.widget.PopupMenu;
 import android.widget.TextView;
+import android.widget.Toast;
+import android.widget.EditText;
 import android.text.InputType;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.net.Socket;
-import java.nio.charset.StandardCharsets;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.RandomAccessFile;
 
 public class MainActivity extends Activity {
-    private static final String TERMUX_PERMISSION = "com.termux.permission.RUN_COMMAND";
-    private static final String TERMUX_BASH = "/data/data/com.termux/files/usr/bin/bash";
-    private static final String TERMUX_HOME = "/data/data/com.termux/files/home";
-    private static final int TEXT = 0xFFDFE7F5, MUTED = 0xFF9CAFC8, BG = 0xFF0B1220, CARD = 0xFF172238;
-    private EditText iso, ram, cores, diskSize, kernel, initrd, dtb, kernelArgs;
-    private Spinner cpu;
-    private TextView status;
-    private SharedPreferences preferences;
-    private boolean startPending;
-    private static final String FIRST_ACCESS_COMMAND =
-      "mkdir -p ~/.termux; printf '\\nallow-external-apps = true\\n' >> ~/.termux/termux.properties; termux-reload-settings";
+    private static final int ISO = 501, KERNEL = 502, DTB = 503;
+    private static final int BG = 0xFF0E1014, PANEL = 0xFF1B1E25, LINE = 0xFF363B45;
+    private static final int FG = 0xFFEAF0F8, SECONDARY = 0xFFADB4C0;
+    private SharedPreferences prefs;
+    private LinearLayout root;
+    private TextView engineText, mediaText, machineText, feedback;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
-        preferences = getSharedPreferences("vm", MODE_PRIVATE);
-        buildUi();
-    }
-
-    private TextView isoFile, vmSummary;
-    private View advancedPanel, isoPickerRow;
-    private Button browseButton, startButton, advancedToggle;
-    private boolean importInProgress;
-    private android.net.Uri pendingLegacyIso;
-    private static final int REQUEST_ISO = 201, REQUEST_LEGACY_STORAGE = 202;
-    private static final int REQUEST_KERNEL = 203, REQUEST_INITRD = 204, REQUEST_DTB = 205;
-    private int pendingImportKind = REQUEST_ISO;
-
-    private void buildUi() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xFF101217);
-        LinearLayout root = new LinearLayout(this);
+        prefs = getSharedPreferences("native_vm", MODE_PRIVATE);
+        root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(24), dp(18), dp(32));
-        root.setOnApplyWindowInsetsListener((view, insets) -> {
-            int top = Math.max(0, insets.getSystemWindowInsetTop());
-            int bottom = Math.max(0, insets.getSystemWindowInsetBottom());
-            view.setPadding(dp(18), top + dp(18), dp(18), bottom + dp(28));
+        root.setPadding(dp(20), dp(24), dp(20), dp(32));
+        root.setBackgroundColor(BG);
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            v.setPadding(dp(20), insets.getSystemWindowInsetTop() + dp(22),
+                    dp(20), insets.getSystemWindowInsetBottom() + dp(22));
             return insets;
         });
-        scroll.addView(root);
-        setContentView(scroll);
+        setContentView(root);
+        showHome();
+    }
 
-        iso = new EditText(this);
-        iso.setText(preferences.getString("iso", ""));
+    @Override protected void onResume() {
+        super.onResume();
+        refresh();
+    }
 
-        LinearLayout header = horizontal();
-        android.widget.ImageView icon = new android.widget.ImageView(this);
-        icon.setImageResource(R.drawable.qemu_brand);
-        icon.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-        header.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
-        LinearLayout brand = vertical();
-        brand.setPadding(dp(11), dp(2), 0, 0);
-        brand.addView(label("Qemu Application", 18, 0xFFE9ECF2, true));
-        brand.addView(label("Virtual machine manager", 11, 0xFF8E949E, false));
-        header.addView(brand, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView version = label("0.4", 11, 0xFF8995A6, false);
-        version.setGravity(Gravity.CENTER_VERTICAL);
-        header.addView(version);
+    private void showHome() {
+        root.removeAllViews();
+        LinearLayout header = row();
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.qemu_brand);
+        header.addView(logo, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        TextView title = text("Qemu Application", 19, FG, true);
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, -2, 1);
+        tp.leftMargin = dp(12);
+        header.addView(title, tp);
+        TextView dots = text("⋮", 27, FG, false);
+        dots.setGravity(Gravity.CENTER);
+        header.addView(dots, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        dots.setOnClickListener(v -> showMenu(dots));
         root.addView(header);
-        root.addView(spacer(23));
+        root.addView(gap(26));
 
-        vmSummary = label("●  Checking VM status…", 13, 0xFFA6ADB9, false);
-        root.addView(vmSummary);
-        root.addView(spacer(15));
-        divider(root);
-        root.addView(spacer(21));
+        TextView section = text("Machines", 25, FG, true);
+        root.addView(section);
+        root.addView(gap(15));
 
-        root.addView(label("New machine", 23, 0xFFF1F3F6, true));
-        TextView subtitle = label("Configure, boot and manage a local VM.", 13, 0xFF9299A5, false);
-        subtitle.setPadding(0, dp(5), 0, dp(23));
-        root.addView(subtitle);
+        LinearLayout card = column();
+        card.setPadding(dp(17), dp(19), dp(17), dp(17));
+        card.setBackground(shape(PANEL, LINE, 14));
+        TextView name = text("Local VM", 18, FG, true);
+        card.addView(name);
+        machineText = text("x86_64 · 1024 MB · 2 cores", 13, SECONDARY, false);
+        card.addView(machineText);
+        card.addView(gap(9));
+        mediaText = text("No boot image selected", 13, SECONDARY, false);
+        card.addView(mediaText);
+        card.addView(gap(12));
+        TextView hint = text("Tap machine to run  ·  Configure with ⋮", 12, 0xFF83AACF, false);
+        card.addView(hint);
+        root.addView(card);
+        card.setOnClickListener(v -> launchFromCard());
 
-        section(root, "BOOT MEDIA");
-        LinearLayout mediaRow = horizontal();
-        mediaRow.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout mediaCopy = vertical();
-        mediaCopy.addView(label("Installer image", 15, 0xFFE8EDF2, true));
-        isoFile = label("No ISO selected • boots from virtual disk", 12, 0xFF949CA8, false);
-        isoFile.setMaxLines(2);
-        isoFile.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        mediaCopy.addView(isoFile);
-        mediaRow.addView(mediaCopy, new LinearLayout.LayoutParams(0, -2, 1));
-        browseButton = flatButton("Browse", false, this::pickIso);
-        LinearLayout.LayoutParams browseParams = new LinearLayout.LayoutParams(dp(82), dp(43));
-        browseParams.leftMargin = dp(10);
-        mediaRow.addView(browseButton, browseParams);
-        Button eject = flatButton("Clear", false, () -> {
-            if (importInProgress) return;
-            iso.setText("");
-            preferences.edit().remove("iso").remove("isoName").apply();
-            updateIsoLabel();
-            info("Boot ISO cleared; VM will boot from its disk.");
+        root.addView(gap(25));
+        root.addView(text("ENGINE", 11, 0xFF8993A2, true));
+        root.addView(gap(9));
+        engineText = text("", 13, SECONDARY, false);
+        root.addView(engineText);
+        root.addView(gap(17));
+        feedback = text("No Termux, shell, or external setup required by the app UI.", 12, SECONDARY, false);
+        root.addView(feedback);
+        root.addView(gap(17));
+        TextView open = text("Display", 14, FG, true);
+        open.setPadding(dp(2), dp(13), dp(2), dp(13));
+        root.addView(open);
+        open.setOnClickListener(v -> {
+            startActivity(new Intent(this, ViewerActivity.class));
         });
-        LinearLayout.LayoutParams ejectParams = new LinearLayout.LayoutParams(dp(63), dp(43));
-        ejectParams.leftMargin = dp(6);
-        mediaRow.addView(eject, ejectParams);
-        isoPickerRow = mediaRow;
-        root.addView(mediaRow);
-        root.addView(spacer(12));
+        refresh();
+    }
 
-        section(root, "ARCHITECTURE");
-        cpu = new Spinner(this);
-        String[] arch = {"x86_64", "i386", "aarch64 (kernel)"};
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
-            android.R.layout.simple_spinner_item, arch);
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        cpu.setAdapter(adapter);
-        cpu.setSelection(Math.min(2, Math.max(0, preferences.getInt("arch", 0))));
-        cpu.setBackground(surface(0xFF1B1F27, 0xFF363B45, 10));
-        cpu.setPadding(dp(11), 0, dp(11), 0);
-        root.addView(cpu, new LinearLayout.LayoutParams(-1, dp(48)));
-        root.addView(spacer(22));
+    private void refresh() {
+        if (engineText == null) return;
+        boolean engine = NativeEngine.isAvailable(this, "x86_64") ||
+                         NativeEngine.isAvailable(this, "aarch64");
+        boolean running = NativeVmService.isRunning();
+        engineText.setText(running ? "● VM process active" : engine ?
+                "Native QEMU library detected" :
+                "Native QEMU runtime not bundled yet");
+        engineText.setTextColor(running ? 0xFF9CD8AE : engine ? FG : 0xFFFFBA88);
+        if (machineText != null) {
+            String arch = prefs.getString("arch", "x86_64");
+            machineText.setText(arch + " · " + prefs.getInt("ram", 1024) + " MB · " +
+                    prefs.getInt("cores", 2) + " cores");
+        }
+        if (mediaText != null) {
+            mediaText.setText(prefs.getString("isoName", "No boot image selected"));
+        }
+    }
 
-        section(root, "RESOURCES");
-        LinearLayout resources = horizontal();
-        resources.setGravity(Gravity.TOP);
-        LinearLayout ramCell = vertical(), cpuCell = vertical(), diskCell = vertical();
-        LinearLayout.LayoutParams first = weightCell();
-        first.rightMargin = dp(9);
-        LinearLayout.LayoutParams second = weightCell();
-        second.rightMargin = dp(9);
-        resources.addView(ramCell, first);
-        resources.addView(cpuCell, second);
-        resources.addView(diskCell, weightCell());
-        ram = field(ramCell, "RAM · MB", "1024", preferences.getString("ram", "1024"), true);
-        cores = field(cpuCell, "CPU", "2", preferences.getString("cores", "2"), true);
-        diskSize = field(diskCell, "Disk · GB", "8", preferences.getString("disk", "8"), true);
-        root.addView(resources);
-        root.addView(spacer(8));
-        root.addView(label("The disk is persistent. Creating it will not overwrite an existing image.", 11, 0xFF8D939D, false));
-        root.addView(spacer(9));
-
-        Button createDisk = flatButton("Create virtual disk", false, this::createDisk);
-        root.addView(createDisk, new LinearLayout.LayoutParams(-1, dp(45)));
-        root.addView(spacer(22));
-
-        startButton = flatButton("Start virtual machine", true, this::startVm);
-        root.addView(startButton, new LinearLayout.LayoutParams(-1, dp(52)));
-        root.addView(spacer(8));
-
-        LinearLayout actions = horizontal();
-        Button display = flatButton("Open display", false,
-            () -> startActivity(new Intent(this, ViewerActivity.class)));
-        Button stop = flatButton("Stop VM", false, this::stopVm);
-        LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(0, dp(48), 1);
-        p1.rightMargin = dp(10);
-        actions.addView(display, p1);
-        actions.addView(stop, new LinearLayout.LayoutParams(0, dp(48), 1));
-        root.addView(actions);
-        root.addView(spacer(26));
-        divider(root);
-        root.addView(spacer(19));
-        section(root, "ENVIRONMENT");
-        LinearLayout tools = horizontal();
-        Button setup = flatButton("Setup QEMU", false, this::setupEnvironment);
-        Button check = flatButton("Check status", false, this::checkStatus);
-        LinearLayout.LayoutParams toolsP = new LinearLayout.LayoutParams(0, dp(47), 1);
-        toolsP.rightMargin = dp(10);
-        tools.addView(setup, toolsP);
-        tools.addView(check, new LinearLayout.LayoutParams(0, dp(47), 1));
-        root.addView(tools);
-
-        root.addView(spacer(16));
-        advancedToggle = flatButton("Advanced · ARM64 kernel   ▾", false, () -> {
-            boolean show = advancedPanel.getVisibility() != View.VISIBLE;
-            advancedPanel.setVisibility(show ? View.VISIBLE : View.GONE);
-            advancedToggle.setText(show ? "Advanced · ARM64 kernel   ▴" : "Advanced · ARM64 kernel   ▾");
-        });
-        root.addView(advancedToggle, new LinearLayout.LayoutParams(-1, dp(47)));
-
-        LinearLayout extras = vertical();
-        extras.setPadding(0, dp(10), 0, dp(5));
-        extras.addView(label("Select files from storage using the three-dot buttons.", 12, 0xFF8E949E, false));
-        extras.addView(spacer(12));
-        kernel = fileField(extras, "Kernel image", "Choose kernel…", preferences.getString("kernel", ""), REQUEST_KERNEL);
-        initrd = fileField(extras, "Initrd · optional", "No initrd", preferences.getString("initrd", ""), REQUEST_INITRD);
-        dtb = fileField(extras, "Device tree · optional", "No DTB", preferences.getString("dtb", ""), REQUEST_DTB);
-        kernelArgs = field(extras, "Kernel arguments", "console=ttyAMA0", preferences.getString("kargs", "console=ttyAMA0"), false);
-        advancedPanel = extras;
-        extras.setVisibility(cpu.getSelectedItemPosition() == 2 ? View.VISIBLE : View.GONE);
-        root.addView(extras);
-
-        root.addView(spacer(16));
-        status = label("Ready", 12, 0xFFAAB1BB, false);
-        root.addView(status);
-
-        cpu.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-            @Override public void onNothingSelected(android.widget.AdapterView<?> view) {}
-            @Override public void onItemSelected(android.widget.AdapterView<?> view, View target, int position, long id) {
-                boolean arm = position == 2;
-                isoPickerRow.setAlpha(arm ? 0.48f : 1f);
-                browseButton.setEnabled(!arm && !importInProgress);
-                if (arm) {
-                    advancedPanel.setVisibility(View.VISIBLE);
-                    advancedToggle.setText("Advanced · ARM64 kernel   ▴");
-                } else {
-                    advancedPanel.setVisibility(View.GONE);
-                    advancedToggle.setText("Advanced · ARM64 kernel   ▾");
-                }
+    private void showMenu(View anchor) {
+        PopupMenu menu = new PopupMenu(this, anchor);
+        String[] labels = {"Choose ISO", "Choose custom kernel", "Choose DTB",
+                "Architecture", "RAM", "CPU cores", "Disk capacity",
+                "Create virtual disk", "Open VM display", "Stop VM", "Native engine status"};
+        for (int i = 0; i < labels.length; i++) menu.getMenu().add(0, i, i, labels[i]);
+        menu.setOnMenuItemClickListener(item -> {
+            switch (item.getItemId()) {
+                case 0: chooseFile(ISO); break;
+                case 1: chooseFile(KERNEL); break;
+                case 2: chooseFile(DTB); break;
+                case 3: chooseArchitecture(); break;
+                case 4: numberDialog("RAM (MB)", "ram", 1024, 256, 8192); break;
+                case 5: numberDialog("CPU cores", "cores", 2, 1, 8); break;
+                case 6: numberDialog("Disk capacity (GB)", "diskGb", 8, 1, 128); break;
+                case 7: createDisk(); break;
+                case 8: startActivity(new Intent(this, ViewerActivity.class)); break;
+                case 9: NativeVmService.stop(this); break;
+                case 10: engineDialog(); break;
+                default: break;
             }
+            return true;
         });
-        updateIsoLabel();
-        checkStatus();
+        menu.show();
     }
 
-    private LinearLayout vertical() {
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.VERTICAL);
-        return l;
+    private void chooseArchitecture() {
+        String[] choices = {"x86_64 (PC)", "aarch64 (virt, experimental)"};
+        new AlertDialog.Builder(this).setTitle("Guest architecture")
+                .setSingleChoiceItems(choices,
+                        prefs.getString("arch", "x86_64").equals("aarch64") ? 1 : 0,
+                        (dialog, which) -> {
+                            prefs.edit().putString("arch", which == 0 ? "x86_64" : "aarch64").apply();
+                            dialog.dismiss();
+                            refresh();
+                        }).setNegativeButton("Cancel", null).show();
     }
 
-    private LinearLayout horizontal() {
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.HORIZONTAL);
-        return l;
-    }
-
-    private LinearLayout.LayoutParams weightCell() {
-        return new LinearLayout.LayoutParams(0, -2, 1);
-    }
-
-    private void section(LinearLayout parent, String name) {
-        TextView t = label(name, 11, 0xFFA8B0BC, true);
-        t.setLetterSpacing(.09f);
-        t.setPadding(0, 0, 0, dp(9));
-        parent.addView(t);
-    }
-
-    private void divider(LinearLayout parent) {
-        View line = new View(this);
-        line.setBackgroundColor(0xFF2C3038);
-        parent.addView(line, new LinearLayout.LayoutParams(-1, dp(1)));
-    }
-
-    private android.graphics.drawable.GradientDrawable surface(int fill, int stroke, int corner) {
-        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
-        shape.setColor(fill);
-        shape.setStroke(dp(1), stroke);
-        shape.setCornerRadius(dp(corner));
-        return shape;
-    }
-
-    private Button flatButton(String title, boolean primary, Runnable tap) {
-        Button b = new Button(this);
-        b.setText(title);
-        b.setAllCaps(false);
-        b.setTextSize(13);
-        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        b.setTextColor(primary ? 0xFF11171D : 0xFFE0E4EA);
-        b.setPadding(dp(10), 0, dp(10), 0);
-        b.setMinHeight(0);
-        b.setMinimumHeight(0);
-        b.setBackground(surface(primary ? 0xFFBCC9E6 : 0xFF242831,
-                               primary ? 0xFFBCC9E6 : 0xFF383E48, 10));
-        b.setOnClickListener(v -> tap.run());
-        return b;
-    }
-
-    /** File-based ARM64 inputs: path is displayed but users can select actual files. */
-    private EditText fileField(LinearLayout parent, String title, String placeholder, String value, int code) {
-        section(parent, title.toUpperCase(java.util.Locale.ROOT));
-        LinearLayout row = horizontal();
-        row.setGravity(Gravity.CENTER_VERTICAL);
+    private void numberDialog(String title, String key, int defaultValue, int min, int max) {
         EditText field = new EditText(this);
-        field.setSingleLine(true);
-        field.setText(value);
-        field.setTextSize(13);
-        field.setHint(placeholder);
-        field.setTextColor(0xFFEBEEF3);
-        field.setHintTextColor(0xFF929AA6);
-        field.setPadding(dp(13), 0, dp(10), 0);
-        field.setBackground(surface(0xFF1B1F27, 0xFF363B45, 10));
-        row.addView(field, new LinearLayout.LayoutParams(0, dp(49), 1));
-        Button more = flatButton("⋮", false, () -> pickGuestFile(code));
-        more.setContentDescription("Choose " + title + " file");
-        more.setTextSize(23);
-        LinearLayout.LayoutParams choose = new LinearLayout.LayoutParams(dp(52), dp(49));
-        choose.leftMargin = dp(9);
-        row.addView(more, choose);
-        parent.addView(row);
-        parent.addView(spacer(16));
-        return field;
+        field.setInputType(InputType.TYPE_CLASS_NUMBER);
+        field.setText(String.valueOf(prefs.getInt(key, defaultValue)));
+        new AlertDialog.Builder(this).setTitle(title)
+                .setView(field).setNegativeButton("Cancel", null)
+                .setPositiveButton("Save", (d, w) -> {
+                    try {
+                        int value = Integer.parseInt(field.getText().toString());
+                        if (value < min || value > max) throw new IllegalArgumentException();
+                        prefs.edit().putInt(key, value).apply();
+                        refresh();
+                    } catch (Exception ex) {
+                        message("Allowed range: " + min + "–" + max);
+                    }
+                }).show();
     }
 
-    private boolean isPickerRequest(int code) {
-        return code == REQUEST_ISO || code == REQUEST_KERNEL || code == REQUEST_INITRD || code == REQUEST_DTB;
-    }
-
-    private void pickGuestFile(int code) {
-        if (importInProgress) {
-            info("Finish the current file import first.");
-            return;
-        }
-        Intent choose = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        choose.addCategory(Intent.CATEGORY_OPENABLE);
-        choose.setType("*/*");
-        choose.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        try {
-            startActivityForResult(choose, code);
-        } catch (android.content.ActivityNotFoundException e) {
-            info("No system file picker is installed.");
-        }
-    }
-
-    private EditText selectedGuestField(int code) {
-        switch (code) {
-            case REQUEST_KERNEL: return kernel;
-            case REQUEST_INITRD: return initrd;
-            case REQUEST_DTB: return dtb;
-            default: return iso;
-        }
-    }
-
-    private String selectedGuestKey(int code) {
-        switch (code) {
-            case REQUEST_KERNEL: return "kernel";
-            case REQUEST_INITRD: return "initrd";
-            case REQUEST_DTB: return "dtb";
-            default: return "iso";
-        }
-    }
-
-    private void importGuestFile(android.net.Uri uri, int code) {
-        if (importInProgress) return;
-        importInProgress = true;
-        browseButton.setEnabled(false);
-        startButton.setEnabled(false);
-        info("Importing selected file to shared Downloads…");
-        IsoStorage.importDocument(this, uri, selectedGuestKey(code), new IsoStorage.Listener() {
-            @Override public void onProgress(long bytes, long total) {
-                int percent = total > 0 ? (int) Math.min(100, bytes * 100 / total) : -1;
-                String progress = percent >= 0 ? percent + "%" : bytes / 1048576L + " MB";
-                if (code == REQUEST_ISO) isoFile.setText("Importing ISO · " + progress);
-                info("Importing " + selectedGuestKey(code) + " · " + progress);
-            }
-            @Override public void onReady(String path, String name) {
-                importInProgress = false;
-                browseButton.setEnabled(cpu.getSelectedItemPosition() != 2);
-                startButton.setEnabled(true);
-                EditText target = selectedGuestField(code);
-                if (target != null) target.setText(path);
-                preferences.edit().putString(selectedGuestKey(code), path)
-                        .putString(selectedGuestKey(code) + "Name", name).apply();
-                if (code == REQUEST_ISO) updateIsoLabel();
-                info(name + " imported successfully. Termux needs storage permission.");
-            }
-            @Override public void onError(String error) {
-                importInProgress = false;
-                browseButton.setEnabled(cpu.getSelectedItemPosition() != 2);
-                startButton.setEnabled(true);
-                updateIsoLabel();
-                info("File import failed: " + error);
-            }
-        });
-    }
-
-    private void updateIsoLabel() {
-        if (isoFile == null) return;
-        String chosen = preferences.getString("isoName", "");
-        String path = iso == null ? "" : iso.getText().toString().trim();
-        isoFile.setText(path.isEmpty() ? "No ISO selected • boot from disk"
-            : (chosen.isEmpty() ? "Boot ISO selected" : chosen));
-    }
-
-    private void pickIso() {
-        if (importInProgress) return;
-        if (cpu != null && cpu.getSelectedItemPosition() == 2) {
-            info("ISO boot is available on x86/i386 profiles; ARM64 uses direct-kernel mode.");
-            return;
-        }
-        pickGuestFile(REQUEST_ISO);
+    private void chooseFile(int request) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startActivityForResult(intent, request);
     }
 
     @Override @SuppressWarnings("deprecation")
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (!isPickerRequest(requestCode) || resultCode != RESULT_OK || data == null ||
-                data.getData() == null) return;
-        android.net.Uri chosen = data.getData();
-        if (android.os.Build.VERSION.SDK_INT < 29 &&
-                checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    != PackageManager.PERMISSION_GRANTED) {
-            pendingLegacyIso = chosen;
-            pendingImportKind = requestCode;
-            requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE},
-                    REQUEST_LEGACY_STORAGE);
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        if (requestCode != ISO && requestCode != KERNEL && requestCode != DTB) return;
+        Uri source = data.getData();
+        String kind = requestCode == ISO ? "iso" : requestCode == KERNEL ? "kernel" : "dtb";
+        String sourceName = "selected file";
+        try (Cursor cursor = getContentResolver().query(source,
+                new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst())
+                sourceName = cursor.getString(0);
+        } catch (Exception ignored) {}
+        if (requestCode == ISO && !sourceName.toLowerCase(java.util.Locale.ROOT).endsWith(".iso")) {
+            message("Select a .iso installer image.");
             return;
         }
-        importGuestFile(chosen, requestCode);
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grants) {
-        super.onRequestPermissionsResult(requestCode, permissions, grants);
-        if (requestCode == REQUEST_LEGACY_STORAGE) {
-            if (grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED &&
-                    pendingLegacyIso != null) {
-                android.net.Uri next = pendingLegacyIso;
-                pendingLegacyIso = null;
-                importGuestFile(next, pendingImportKind);
-            } else {
-                pendingLegacyIso = null;
-                info("Storage write permission is needed on Android 8–9 to import an ISO.");
-            }
-        }
-    }
-
-    private boolean termuxInstalled() {
-        try { getPackageManager().getPackageInfo("com.termux", 0); return true; }
-        catch (PackageManager.NameNotFoundException e) { return false; }
-    }
-
-    private void setupEnvironment() {
-        if (!termuxInstalled()) {
-            new AlertDialog.Builder(this).setTitle("Termux required")
-              .setMessage("Install official Termux from GitHub or F-Droid and open it once.")
-              .setPositiveButton("Get Termux", (dialog, which) -> startActivity(
-                  new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/termux/termux-app/releases"))))
-              .setNegativeButton("Cancel", null).show();
-            return;
-        }
-        if (!preferences.getBoolean("first_auth_ack", false)) {
-            new AlertDialog.Builder(this).setTitle("One-time Termux permission")
-              .setMessage("Android blocks other apps from modifying Termux settings. Paste the command copied to clipboard in Termux, then return and tap Setup again. Grant 'Run commands in Termux environment' under Android App info > Permissions > Additional permissions. This initial authorization cannot be bypassed.")
-              .setPositiveButton("Copy command & open", (dialog, which) -> {
-                  ClipboardManager clip = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                  clip.setPrimaryClip(ClipData.newPlainText("Termux setup permission", FIRST_ACCESS_COMMAND));
-                  preferences.edit().putBoolean("first_auth_ack", true).apply();
-                  info("Command copied. Run it in Termux and return to Setup.");
-                  openTermux();
-              })
-              .setNegativeButton("Cancel", null).show();
-            return;
-        }
-        String script = "set -euo pipefail; DIR=\"$HOME/qemu-aplication\"; mkdir -p \"$DIR\"; rm -f \"$DIR/setup.status\"; { echo \"[1/3] Updating Termux package index\"; pkg update -y; echo \"[2/3] Installing QEMU packages\"; pkg install -y qemu-system-x86-64-headless qemu-system-i386-headless qemu-system-aarch64-headless qemu-utils; echo \"[3/3] Configuring storage\"; termux-setup-storage || true; command -v qemu-img; command -v qemu-system-x86_64; command -v qemu-system-i386; command -v qemu-system-aarch64; printf \"READY\\\\n\" > \"$DIR/setup.status\"; echo \"Setup complete\"; } 2>&1 | tee \"$DIR/setup.log\"";
-        if (checkSelfPermission(TERMUX_PERMISSION) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{TERMUX_PERMISSION}, 100);
-            info("Grant Run commands in Termux environment, then tap Setup again.");
-            return;
-        }
-        runTermux(script, "Setup requested in Termux. Watch the terminal; setup.status appears after package verification.", false);
-        openTermux();
-    }
-
-    private void checkStatus() {
-        info("Checking QMP and VNC...");
+        final String chosenName = sourceName;
+        feedback.setText("Importing " + chosenName + "…");
         new Thread(() -> {
-            boolean qmp = isListening(4444), vnc = isListening(5901);
-            runOnUiThread(() -> {
-                if (vmSummary != null) {
-                    vmSummary.setText(qmp && vnc ? "●  VM running · display ready" :
-                            (qmp || vnc) ? "●  VM starting / partially available" : "●  VM offline");
-                    vmSummary.setTextColor(qmp && vnc ? 0xFFA8D7C1 : 0xFFA6ADB9);
+            try {
+                File dir = new File(getFilesDir(), "media");
+                if (!dir.exists() && !dir.mkdirs()) throw new IOException("Cannot create media directory");
+                File pending = new File(dir, kind + ".partial");
+                File target = new File(dir, kind + ".img");
+                try (InputStream input = getContentResolver().openInputStream(source);
+                     FileOutputStream output = new FileOutputStream(pending)) {
+                    if (input == null) throw new IOException("Selected file cannot be read");
+                    byte[] chunk = new byte[256 * 1024];
+                    int size;
+                    while ((size = input.read(chunk)) != -1) output.write(chunk, 0, size);
+                    output.getFD().sync();
                 }
-                info(qmp && vnc ? "VM reachable: QMP + VNC active."
-                   : qmp ? "QMP online, VNC not ready."
-                   : vnc ? "VNC online, QMP not ready."
-                   : "VM offline. Check run.log in Termux if a start was requested.");
-            });
-        }, "vm-status").start();
+                if (target.exists() && !target.delete()) throw new IOException("Could not replace old image");
+                if (!pending.renameTo(target)) throw new IOException("Could not finalize imported image");
+                prefs.edit().putString(kind + "Path", target.getAbsolutePath())
+                        .putString(kind + "Name", chosenName).apply();
+                runOnUiThread(() -> {
+                    feedback.setText(chosenName + " imported to private app storage");
+                    refresh();
+                });
+            } catch (Exception e) {
+                String error = e.getMessage();
+                runOnUiThread(() -> feedback.setText("Import failed: " + error));
+            }
+        }, "native-import").start();
     }
 
-    private boolean isListening(int port) {
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress("127.0.0.1", port), 1200);
-            return true;
-        } catch (Exception e) { return false; }
-    }
-
-    private String launchGuard() {
-        return "set -eu; DIR=\"$HOME/qemu-aplication\"; mkdir -p \"$DIR\"; if [ ! -f \"$DIR/setup.status\" ]; then echo 'Run Setup first' > \"$DIR/run.log\"; exit 1; fi; PID=\"$DIR/qemu.pid\"; if [ -r \"$PID\" ]; then old=$(cat \"$PID\" 2>/dev/null || true); if [ -n \"$old\" ] && kill -0 \"$old\" 2>/dev/null; then echo 'VM already running' > \"$DIR/run.log\"; exit 1; fi; rm -f \"$PID\"; fi; ";
-    }
-
-    private void persist() {
-        preferences.edit().putInt("arch", cpu.getSelectedItemPosition())
-          .putString("iso", iso.getText().toString().trim())
-          .putString("ram", ram.getText().toString().trim())
-          .putString("cores", cores.getText().toString().trim())
-          .putString("disk", diskSize.getText().toString().trim())
-          .putString("kernel", kernel.getText().toString().trim())
-          .putString("initrd", initrd.getText().toString().trim())
-          .putString("dtb", dtb.getText().toString().trim())
-          .putString("kargs", kernelArgs.getText().toString().trim()).apply();
+    private File disk() {
+        return new File(getFilesDir(), "machine.img");
     }
 
     private void createDisk() {
-        persist();
-        int gb = numeric(diskSize, 1, 128);
-        if (gb == -1) { info("Disk size must be 1–128 GB."); return; }
-        String command = "set -eu; mkdir -p \"$HOME/qemu-aplication\"; " +
-          "command -v qemu-img >/dev/null || { echo 'Missing qemu-utils'; exit 127; }; " +
-          "if [ -e \"$HOME/qemu-aplication/disk.qcow2\" ]; then echo 'Disk already exists'; exit 1; fi; " +
-          "qemu-img create -f qcow2 \"$HOME/qemu-aplication/disk.qcow2\" " + gb + "G " +
-          "> \"$HOME/qemu-aplication/create-disk.log\" 2>&1";
-        runTermux(command, "Virtual disk creation requested. Check ~/qemu-aplication/create-disk.log in Termux.");
-    }
-
-    private void startVm() {
-        if (importInProgress) { info("Finish importing the ISO before starting QEMU."); return; }
-        if (startPending) { info("VM start already requested; check its status."); return; }
-        persist();
-        int memory = numeric(ram, 256, 8192), count = numeric(cores, 1, 8);
-        if (memory == -1 || count == -1) { info("RAM: 256–8192 MB. Cores: 1–8."); return; }
-        startPending = true;
-        new android.os.Handler(getMainLooper()).postDelayed(() -> startPending = false, 4000);
-        if (cpu.getSelectedItemPosition() == 2) { startArm64(memory, count); return; }
-        String bootIso = iso.getText().toString().trim();
-        if (!bootIso.isEmpty() && !(bootIso.startsWith("/sdcard/") ||
-             bootIso.startsWith("/storage/emulated/0/") || bootIso.startsWith("/data/data/com.termux/files/home/"))) {
-            info("ISO path must be inside shared storage or Termux home."); return;
-        }
-        if (bootIso.contains("\n") || bootIso.contains("\r")) { info("Invalid ISO path."); return; }
-        String binary = cpu.getSelectedItemPosition() == 1 ? "qemu-system-i386" : "qemu-system-x86_64";
-        String boot = bootIso.isEmpty() ? "c" : "d";
-        String optIso = bootIso.isEmpty() ? "" :
-             " -drive file=" + quote(bootIso) + ",media=cdrom,readonly=on";
-        String command = launchGuard() +
-          "if ! command -v " + binary + " >/dev/null; then echo 'QEMU package missing' > \"$HOME/qemu-aplication/run.log\"; exit 127; fi; " +
-          "if [ ! -f \"$HOME/qemu-aplication/disk.qcow2\" ]; then echo 'Create disk first' > \"$HOME/qemu-aplication/run.log\"; exit 1; fi; " +
-          (bootIso.isEmpty() ? "" : "if [ ! -r " + quote(bootIso) + " ]; then echo 'ISO cannot be read' > \"$DIR/run.log\"; exit 1; fi; ") +
-          "echo $$ > \"$PID\"; exec " + binary + " -machine pc -accel tcg,thread=multi -cpu max -smp " + count +
-          " -m " + memory + " -boot order=" + boot +
-          " -drive file=\"$HOME/qemu-aplication/disk.qcow2\",if=ide,format=qcow2" + optIso +
-          " -usb -device usb-tablet -vga std" +
-          " -netdev user,id=net0 -device e1000,netdev=net0" +
-          " -vnc 127.0.0.1:1 -display none" +
-          " -qmp tcp:127.0.0.1:4444,server=on,wait=off" +
-          " > \"$HOME/qemu-aplication/run.log\" 2>&1";
-        runTermux(command, "Start request sent. Once QEMU is running, open VNC display (127.0.0.1:5901).");
-    }
-
-    private boolean acceptablePath(String path) {
-        return !path.isEmpty() && !path.contains("\n") && !path.contains("\r")
-          && (path.startsWith("/sdcard/") || path.startsWith("/storage/emulated/0/")
-          || path.startsWith("/data/data/com.termux/files/home/"));
-    }
-
-    private void startArm64(int memory, int count) {
-        String k = kernel.getText().toString().trim();
-        String r = initrd.getText().toString().trim();
-        String d = dtb.getText().toString().trim();
-        String args = kernelArgs.getText().toString().trim();
-        if (!acceptablePath(k) || (!r.isEmpty() && !acceptablePath(r)) ||
-            (!d.isEmpty() && !acceptablePath(d)) ||
-            args.contains("\n") || args.contains("\r") || args.length() > 1024) {
-            info("ARM64 needs valid paths and boot arguments.");
+        if (disk().exists()) {
+            new AlertDialog.Builder(this).setTitle("Disk already exists")
+                    .setMessage("Existing guest data is preserved. Delete it manually only after backing it up.")
+                    .setPositiveButton("OK", null).show();
             return;
         }
-        String other = (r.isEmpty() ? "" : " -initrd " + quote(r))
-                     + (d.isEmpty() ? "" : " -dtb " + quote(d));
-        String script = launchGuard() +
-          "if ! command -v qemu-system-aarch64 >/dev/null; then echo 'Install qemu-system-aarch64-headless' > \"$HOME/qemu-aplication/run.log\"; exit 127; fi; " +
-          "if [ ! -f \"$HOME/qemu-aplication/disk.qcow2\" ]; then echo 'Create disk first' > \"$HOME/qemu-aplication/run.log\"; exit 1; fi; " +
-          "if [ ! -r " + quote(k) + " ]; then echo 'ARM64 kernel cannot be read' > \"$DIR/run.log\"; exit 1; fi; " +
-          (r.isEmpty() ? "" : "if [ ! -r " + quote(r) + " ]; then echo 'initrd cannot be read' > \"$DIR/run.log\"; exit 1; fi; ") +
-          (d.isEmpty() ? "" : "if [ ! -r " + quote(d) + " ]; then echo 'DTB cannot be read' > \"$DIR/run.log\"; exit 1; fi; ") +
-          "echo $$ > \"$PID\"; exec qemu-system-aarch64 -machine virt,accel=tcg -cpu cortex-a72" +
-          " -smp " + count + " -m " + memory + " -kernel " + quote(k) + other +
-          " -append " + quote(args) +
-          " -drive file=\"$HOME/qemu-aplication/disk.qcow2\",format=qcow2,if=virtio" +
-          " -device ramfb -device qemu-xhci -device usb-kbd -device usb-tablet" +
-          " -netdev user,id=net0 -device virtio-net-device,netdev=net0" +
-          " -display none -vnc 127.0.0.1:1 -serial stdio -monitor none" +
-          " -qmp tcp:127.0.0.1:4444,server=on,wait=off" +
-          " > \"$HOME/qemu-aplication/run.log\" 2>&1";
-        runTermux(script, "ARM64 launch requested. Inspect serial logs in Termux at ~/qemu-aplication/run.log.");
-    }
-
-    private void stopVm() {
-        info("Sending QMP shutdown command…");
+        int gb = prefs.getInt("diskGb", 8);
         new Thread(() -> {
-            try (Socket socket = new Socket()) {
-                socket.connect(new InetSocketAddress("127.0.0.1", 4444), 2500);
-                socket.setSoTimeout(3000);
-                BufferedReader input = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-                OutputStream output = socket.getOutputStream();
-                String greeting = input.readLine();
-                if (greeting == null || !greeting.contains("QMP")) throw new IllegalStateException("QMP handshake failed");
-                output.write("{\"execute\":\"qmp_capabilities\"}\r\n".getBytes(StandardCharsets.UTF_8));
-                output.flush();
-                String answer;
-                do { answer = input.readLine(); } while (answer != null && !answer.contains("return") && !answer.contains("error"));
-                if (answer == null || answer.contains("error")) throw new IllegalStateException("QMP capabilities failed");
-                output.write("{\"execute\":\"quit\"}\r\n".getBytes(StandardCharsets.UTF_8));
-                output.flush();
-                runOnUiThread(() -> info("QMP quit submitted."));
+            try {
+                File target = disk();
+                try (RandomAccessFile out = new RandomAccessFile(target, "rw")) {
+                    out.setLength(gb * 1024L * 1024 * 1024);
+                }
+                runOnUiThread(() -> message("Sparse " + gb + " GB RAW disk created"));
             } catch (Exception e) {
-                runOnUiThread(() -> {
-                    info("QMP unavailable; asking Termux to stop the recorded QEMU process.");
-                    runTermux("PID=\"$HOME/qemu-aplication/qemu.pid\"; if [ -r \"$PID\" ]; then p=\"$(cat \"$PID\" 2>/dev/null || true)\"; case \"$p\" in ''|*[!0-9]*) exit 0;; esac; if [ -r \"/proc/$p/cmdline\" ] && tr '\\\\0' ' ' < \"/proc/$p/cmdline\" | grep -q 'qemu-system-'; then kill -TERM \"$p\" || true; fi; fi", "Termux PID stop fallback requested.");
-                });
+                String error = e.getMessage();
+                runOnUiThread(() -> message("Disk creation failed: " + error));
             }
-        }, "qmp-stop").start();
+        }, "disk-create").start();
     }
 
-    private void runTermux(String script, String message) {
-        runTermux(script, message, true);
-    }
-
-    private void runTermux(String script, String message, boolean background) {
-        PackageManager pm = getPackageManager();
-        try { pm.getPackageInfo("com.termux", 0); }
-        catch (PackageManager.NameNotFoundException e) { info("Install the official Termux app first."); return; }
-        if (checkSelfPermission(TERMUX_PERMISSION) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{TERMUX_PERMISSION}, 100);
-            info("Grant 'Run commands in Termux' permission, then tap the button again.");
+    private void launchFromCard() {
+        String arch = prefs.getString("arch", "x86_64");
+        if (!NativeEngine.isAvailable(this, arch)) {
+            engineDialog();
             return;
         }
-        Intent intent = new Intent("com.termux.RUN_COMMAND");
-        intent.setClassName("com.termux", "com.termux.app.RunCommandService");
-        intent.putExtra("com.termux.RUN_COMMAND_PATH", TERMUX_BASH);
-        intent.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", new String[]{"-lc", script});
-        intent.putExtra("com.termux.RUN_COMMAND_WORKDIR", TERMUX_HOME);
-        intent.putExtra("com.termux.RUN_COMMAND_BACKGROUND", background);
-        try { startService(intent); info(message); }
-        catch (Exception e) { info("Termux rejected command: " + e.getMessage()); }
+        if (!disk().exists()) {
+            new AlertDialog.Builder(this).setTitle("No virtual disk")
+                    .setMessage("Create the virtual disk before attempting to boot.")
+                    .setPositiveButton("Create disk", (d, w) -> createDisk())
+                    .setNegativeButton("Cancel", null).show();
+            return;
+        }
+        NativeVmService.start(this);
+        message("Native QEMU launch requested; check engine status.");
     }
 
-    private void openTermux() {
-        Intent open = getPackageManager().getLaunchIntentForPackage("com.termux");
-        if (open != null) startActivity(open); else info("Termux not installed.");
+    private void engineDialog() {
+        new AlertDialog.Builder(this).setTitle("Native QEMU engine")
+          .setMessage("This branch has an Android NDK/JNI host adapter but the QEMU ARM64 binaries and firmware are NOT yet bundled. A successful APK build is not evidence that QEMU can boot. No Termux dependency is used here. Native backend integration and real-device testing are still required.")
+          .setPositiveButton("OK", null).show();
     }
 
-    private String quote(String value) { return "'" + value.replace("'", "'\\''") + "'"; }
-
-    private int numeric(EditText input, int min, int max) {
-        try { int v = Integer.parseInt(input.getText().toString().trim()); return v >= min && v <= max ? v : -1; }
-        catch (Exception e) { return -1; }
+    private void message(String message) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+        if (feedback != null) feedback.setText(message);
+        refresh();
     }
 
-    private void info(String text) { if (status != null) status.setText(text); }
-
-    private LinearLayout panel(LinearLayout parent) {
-        LinearLayout p = new LinearLayout(this);
-        p.setOrientation(LinearLayout.VERTICAL);
-        p.setPadding(dp(17), dp(18), dp(17), dp(18));
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setColor(CARD); bg.setCornerRadius(dp(17));
-        bg.setStroke(dp(1), 0xFF263957);
-        p.setBackground(bg);
-        parent.addView(p, new LinearLayout.LayoutParams(-1, -2));
-        return p;
+    private LinearLayout row() {
+        LinearLayout result = new LinearLayout(this);
+        result.setOrientation(LinearLayout.HORIZONTAL);
+        return result;
     }
-
-    private EditText field(LinearLayout group, String title, String hint, String initial, boolean numeric) {
-        TextView caption = label(title, 12, 0xFFAAB2BD, false);
-        caption.setPadding(0, dp(2), 0, dp(7));
-        group.addView(caption);
-        EditText edit = new EditText(this);
-        edit.setSingleLine(true);
-        edit.setTextColor(0xFFF1F3F6);
-        edit.setHintTextColor(0xFF838B98);
-        edit.setTextSize(14);
-        edit.setHint(hint);
-        edit.setText(initial);
-        edit.setSelectAllOnFocus(false);
-        edit.setPadding(dp(11), 0, dp(10), 0);
-        edit.setBackground(surface(0xFF1B1F27, 0xFF363B45, 9));
-        edit.setInputType(numeric ? InputType.TYPE_CLASS_NUMBER : InputType.TYPE_CLASS_TEXT);
-        group.addView(edit, new LinearLayout.LayoutParams(-1, dp(46)));
-        group.addView(spacer(8));
-        return edit;
+    private LinearLayout column() {
+        LinearLayout result = new LinearLayout(this);
+        result.setOrientation(LinearLayout.VERTICAL);
+        return result;
     }
-
-    private TextView label(String text, int sp, int color, boolean bold) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextColor(color);
-        t.setTextSize(sp);
-        t.setLineSpacing(dp(3), 1f);
-        if (bold) t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        return t;
+    private View gap(int value) {
+        View gap = new View(this);
+        gap.setLayoutParams(new LinearLayout.LayoutParams(1, dp(value)));
+        return gap;
     }
-
-    private void action(LinearLayout group, String title, boolean primary, Runnable task) {
-        Button b = new Button(this);
-        b.setAllCaps(false);
-        b.setText(title);
-        b.setTextSize(14);
-        b.setTextColor(primary ? 0xFF081322 : TEXT);
-        b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(primary ? 0xFF60A5FA : 0xFF30445F));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(47));
-        lp.topMargin = dp(9);
-        group.addView(b, lp);
-        b.setOnClickListener(v -> task.run());
+    private TextView text(String value, int sp, int color, boolean bold) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextSize(sp);
+        view.setTextColor(color);
+        if (bold) view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        return view;
     }
-
-    private View spacer(int h) {
-        View v = new View(this);
-        v.setLayoutParams(new LinearLayout.LayoutParams(1, dp(h)));
-        return v;
+    private GradientDrawable shape(int color, int stroke, int radius) {
+        GradientDrawable result = new GradientDrawable();
+        result.setColor(color);
+        result.setCornerRadius(dp(radius));
+        result.setStroke(dp(1), stroke);
+        return result;
     }
-
-    private int dp(int dp) { return (int)(dp * getResources().getDisplayMetrics().density + .5f); }
+    private int dp(int v) {
+        return (int)(v * getResources().getDisplayMetrics().density + 0.5f);
+    }
 }

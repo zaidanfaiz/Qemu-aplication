@@ -1,26 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
-    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
-    <queries>
-        <package android:name="com.termux" />
-    </queries>
-    <application android:allowBackup="false"
-                 android:label="Qemu Application"
-                 android:icon="@drawable/qemu_brand"
-                 android:roundIcon="@drawable/qemu_brand"
-                 android:usesCleartextTraffic="false"
-                 android:theme="@style/AppTheme">
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <application
+        android:allowBackup="false"
+        android:label="Qemu Application"
+        android:icon="@drawable/qemu_brand"
+        android:roundIcon="@drawable/qemu_brand"
+        android:usesCleartextTraffic="false"
+        android:theme="@style/AppTheme">
         <activity android:name=".ViewerActivity"
-                  android:exported="false"
-                  android:screenOrientation="landscape" />
-        <activity android:name=".MainActivity"
-                  android:exported="true">
+            android:exported="false"
+            android:screenOrientation="landscape" />
+        <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service android:name=".NativeVmService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Local user-initiated virtual machine emulation session" />
+        </service>
     </application>
 </manifest>
