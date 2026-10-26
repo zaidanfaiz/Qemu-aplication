@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/brand.svg" alt="Qemu Application" width="720">
+  <img src="app/src/main/res/drawable-nodpi/qemu_brand.webp" alt="Qemu Application official app icon" width="170">
 </p>
 
 <p align="center">
