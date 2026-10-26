@@ -20,7 +20,9 @@
 
 ## Download / build APK
 
-Open [GitHub Actions](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/build-apk.yml), select the latest successful `Android APK CI` run, then download the artifact `QemuApplication-debug-apk`. It contains `app-debug.apk` signed with the standard Android **debug** key.
+For the easiest download, see [Releases — developer preview](https://github.com/zaidanfaiz/Qemu-aplication/releases/tag/dev-latest). The rolling prerelease includes the latest development APK after a successful build on main.
+
+Alternatively, open [GitHub Actions](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/build-apk.yml), select the latest successful `Android APK CI` run, then download the artifact `QemuApplication-debug-apk`. It contains `app-debug.apk` signed with the standard Android **debug** key.
 
 To build locally, use Android SDK API 35, JDK 17 and Gradle 8.9, then run `gradle assembleDebug`.
 
