@@ -17,6 +17,10 @@ The findings below are extracted from the real workflow artifact, not inferred f
 | Direct `DT_NEEDED` shared libraries | 31 | 31 |
 | Embedded `RUNPATH` | `/data/data/com.termux/files/usr/lib` | `/data/data/com.termux/files/usr/lib` |
 
+Actual extracted binary sizes: **~30 MB for AArch64 guest emulation** and **~25 MB for x86_64 guest emulation** (uncompressed files).
+
+A `objdump -T` inspection of both extracted executables found **no dynamic exports matching `qemu_init`, `qemu_main_loop`, or `qemu_cleanup`**. This confirms that the existing APK JNI host bridge cannot load these executables as if they were QEMU plugin libraries without additional build/entrypoint work.
+
 **Important:** An `ET_DYN` executable with an interpreter is *not* automatically a callable JNI `.so`. Our current Android JNI wrapper expects `qemu_init`, `qemu_main_loop`, and `qemu_cleanup` in `libqemu-system-*.so`. These current Linux-style executables must not be renamed and passed to `dlopen` as a shortcut.
 
 ## Representative direct library dependencies
