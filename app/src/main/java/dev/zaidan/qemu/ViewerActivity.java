@@ -186,8 +186,24 @@ public class ViewerActivity extends Activity {
 
         @Override public void run() {
             try {
-                socket = new Socket();
-                socket.connect(new InetSocketAddress("127.0.0.1", 5901), 4500);
+                IOException lastError = null;
+                for (int attempt = 1; attempt <= 10 && active; attempt++) {
+                    Socket trying = new Socket();
+                    try {
+                        trying.connect(new InetSocketAddress("127.0.0.1", 5901), 2300);
+                        socket = trying;
+                        break;
+                    } catch (IOException e) {
+                        lastError = e;
+                        try { trying.close(); } catch (IOException ignored) {}
+                        if (attempt < 10) {
+                            updateStatus("Waiting for VNC (" + attempt + "/10)...", this);
+                            Thread.sleep(950);
+                        }
+                    }
+                }
+                if (!active) return;
+                if (socket == null) throw lastError == null ? new IOException("VM not running") : lastError;
                 socket.setTcpNoDelay(true);
                 in = new DataInputStream(socket.getInputStream());
                 out = new DataOutputStream(socket.getOutputStream());

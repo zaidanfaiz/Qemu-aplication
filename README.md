@@ -1,106 +1,164 @@
+<p align="center">
+  <img src="docs/assets/brand.svg" alt="Qemu Application" width="720">
+</p>
+
+<p align="center">
+  <strong>Android QEMU VM Manager · VNC Viewer · Termux-powered</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/build-apk.yml"><img alt="Android APK CI" src="https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/build-apk.yml/badge.svg"></a>
+  <a href="https://github.com/zaidanfaiz/Qemu-aplication/releases/tag/dev-latest"><img alt="Download" src="https://img.shields.io/badge/Download-APK-blue"></a>
+  <img alt="Status" src="https://img.shields.io/badge/Status-Developer%20Preview-orange">
+</p>
+
 # Qemu Application
 
-**Android-native UI for local QEMU virtual machines** | Java • QEMU • RFB/VNC • QMP
+Qemu Application is an **Android APK** for launching software-emulated QEMU virtual machines locally on a phone. The APK provides a machine configuration UI, QCOW2 disk creation, a VNC viewer, and QMP/PID-based stop controls.
 
-[![Build APK](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/build-apk.yml/badge.svg)](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/build-apk.yml)
-
-> **Status: v0.1.0 developer preview.** This APK is a QEMU controller and VNC viewer. The QEMU runtime **is not embedded**. It requires a separately installed **Termux** plus its QEMU packages. No root is needed for software-emulated x86 guests. This is not yet a standalone emulator, and it does not currently boot iOS.
+**Status: 0.2.0 developer preview.** The QEMU binaries run inside a separately installed **Termux** environment and are **not bundled in the APK**. Root is not required for TCG software emulation. Android hardware virtualization, iOS/XNU boot, and a fully standalone runtime are **not implemented**.
 
 ## Features
 
-- Android APK built automatically by GitHub Actions
-- x86_64/i386 VM presets and an experimental ARM64 direct-kernel preset, vCPU and RAM controls
-- Create an 8 GB (configurable 1–128 GB) QCOW2 virtual disk inside Termux
-- Boot an ISO stored on Android/Termux-accessible storage
-- Start a local QEMU software-emulation process through Termux `RUN_COMMAND`
-- Embedded VNC/RFB **RAW** framebuffer viewer at `127.0.0.1:5901`
-- Touch pointer input, basic guest keyboard controls and text sender
-- Graceful shutdown via QMP at `127.0.0.1:4444`
-- Networking using QEMU user-mode NAT
+- One **Setup QEMU** button replaces the long first-run instruction panel
+- Installs QEMU packages through Termux after the mandatory one-time authorization
+- Configures x86_64, i386, and experimental AArch64 direct-kernel guests
+- Creates a persistent QCOW2 disk without silently overwriting an existing disk
+- Guards VM startup against an existing QEMU PID; shows a diagnostic log on failure
+- Checks localhost VNC (5901) and QMP (4444) availability
+- Built-in VNC/RFB viewer with a retry window, touch controls, virtual keys, and text entry
+- QMP stop command; TERM-to-verified-PID fallback if QMP cannot be reached
+- GitHub Actions automatic Android APK builds and rolling prereleases
 
-## Download / build APK
+## Download
 
-For the easiest download, see [Releases — developer preview](https://github.com/zaidanfaiz/Qemu-aplication/releases/tag/dev-latest). The rolling prerelease includes the latest development APK after a successful build on main.
+**[Download latest developer APK](https://github.com/zaidanfaiz/Qemu-aplication/releases/download/dev-latest/app-debug.apk)**
 
-Alternatively, open [GitHub Actions](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/build-apk.yml), select the latest successful `Android APK CI` run, then download the artifact `QemuApplication-debug-apk`. It contains `app-debug.apk` signed with the standard Android **debug** key.
+Or use [GitHub Actions](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/build-apk.yml), choose a successful run, and download **QemuApplication-debug-apk**.
 
-To build locally, use Android SDK API 35, JDK 17 and Gradle 8.9, then run `gradle assembleDebug`.
+The development APK uses the Android **debug** signing certificate. It is intended for testing, not production distribution.
 
-## Termux setup (required)
+## Tutorial: first-time setup
 
-Install the official [Termux](https://github.com/termux/termux-app) from GitHub Releases or F-Droid (do not mix Termux builds/signatures).
+### 1. Install official Termux
 
-In Termux:
+Install [Termux from its official GitHub Releases](https://github.com/termux/termux-app/releases) or F-Droid. Open Termux once to initialize its home directory. Avoid mixing Termux and add-ons from builds with different signing certificates.
+
+### 2. Install the APK and press Setup QEMU
+
+Open Qemu Application and tap **Setup QEMU**.
+
+- If Termux is missing, the app opens the official download page.
+- **The first time only:** the app copies the one-time authorization command and opens Termux. Paste and run the command shown below.
+- Grant Qemu Application the **Run commands in Termux environment** permission in Android's **App info → Permissions → Additional permissions**.
+- Return to the APK and tap **Setup QEMU** again. The app requests automatic QEMU package installation and opens Termux so you can see the progress.
+- Allow Termux's storage permission if Android requests it. Once the commands finish, the setup script writes `~/qemu-aplication/setup.status`.
+
+**Mandatory one-time command (copied by the app):**
+
+```sh
+mkdir -p ~/.termux
+printf '\nallow-external-apps = true\n' >> ~/.termux/termux.properties
+termux-reload-settings
+```
+
+**Why is the first command not fully automatic?** Android isolates Termux app data. Termux explicitly requires both `allow-external-apps = true` **inside Termux** and the Android `RUN_COMMAND` permission before another APK may execute its commands. The app cannot bypass this safely. See [Termux's official RUN_COMMAND documentation](https://github.com/termux/termux-app/wiki/RUN_COMMAND-Intent).
+
+If the automatic setup does not start, open Termux and verify the mandatory property and permission above. As a manual fallback you can run:
+
+```sh
+pkg update -y
+pkg install -y qemu-system-x86-64-headless qemu-system-i386-headless qemu-system-aarch64-headless qemu-utils
+termux-setup-storage
+```
+
+**Important:** manual package installation alone does not create the app's `setup.status` file. After fixing permissions, press **Setup QEMU** again so the app can verify binaries and create its setup marker.
+
+### 3. Prepare a Linux ISO
+
+Download a legally distributable **x86_64 Linux installer ISO** appropriate for QEMU (start with a lightweight guest, such as Alpine Linux). Place the ISO in the phone's Download folder. Example absolute file path:
+
+```text
+/sdcard/Download/alpine-linux.iso
+```
+
+The name must match your actual ISO filename. Grant Termux storage permission; `termux-setup-storage` may open Android's permission dialog.
+
+### 4. Create a virtual disk
+
+In the app, select `x86_64`, RAM (try 1024 MB), vCPU cores (try 2), and disk capacity (try 8 GB). Tap **Create virtual disk** once.
+
+The virtual disk is stored at:
+
+```text
+~/qemu-aplication/disk.qcow2
+```
+
+Reusing the same disk is supported. **Create virtual disk does not overwrite an existing file.** Only one VM profile/disk is supported in this preview.
+
+### 5. Start the virtual machine
+
+Enter your ISO absolute path, tap **Start QEMU**, then **Check VM status**. QEMU runs locally under Termux using the phone's CPU (software TCG, not a remote PC).
+
+When VNC and QMP become available, tap **Open VNC display**. The viewer retries while QEMU starts. Inside VNC: touch to click/drag, use the keys below the display, and send basic text input.
+
+After installing the guest OS to QCOW2, **clear the ISO field** and start the VM again to boot its virtual hard disk.
+
+### 6. Stop the virtual machine
+
+Prefer shutdown from inside the guest OS if it is responding. The APK's **Stop VM** button sends QMP `quit` (an **immediate VM termination**, not an ACPI shutdown). If QMP cannot be contacted, the app requests Termux to send TERM to the PID recorded by its own launcher after verifying it is a QEMU process.
+
+## Experimental ARM64 boot
+
+Select `aarch64 (kernel)`, provide an ARM64 bootable kernel accepted by QEMU's `-kernel` option and optionally an initrd/DTB/boot arguments. Create a disk before starting. Inspect the serial output in `run.log` if VNC is black.
+
+This is a **generic QEMU `virt`** machine. It does not emulate an iPhone SoC or load the complete custom boot chain from [ios-emulator](https://github.com/zaidanfaiz/ios-emulator). An iOS boot is **not** confirmed.
+
+## Troubleshooting
+
+| Problem | What to check |
+| --- | --- |
+| Setup does not open a Termux session | Open Termux once, run the one-time authorization command, grant `RUN_COMMAND`, and tap Setup again |
+| Automatic install fails | Check internet, Termux repository mirror, and `~/qemu-aplication/setup.log`; rerun Setup |
+| ISO cannot be read | Confirm exact filename/path, storage permission, and that Termux can read the file |
+| Start request sent but VM is offline | Review `~/qemu-aplication/run.log` in Termux; check QEMU binary, disk, and port conflicts |
+| VM already running | Don't start another instance with the same disk or ports; stop the existing VM first |
+| VNC is black | Wait for guest boot; retry viewer; ARM64 serial-only guests may have no graphical console |
+| Phone gets hot/VM is slow | Use a lightweight guest, 1-2 vCPU, and lower resolution; TCG is CPU intensive |
+| VM is killed when switching apps | Exempt Termux from aggressive battery restrictions if permitted by your device |
+
+**Helpful paths**
+
+| File | Location in Termux |
+| --- | --- |
+| VM disk | `~/qemu-aplication/disk.qcow2` |
+| VM log | `~/qemu-aplication/run.log` |
+| Disk creation log | `~/qemu-aplication/create-disk.log` |
+| Setup log | `~/qemu-aplication/setup.log` |
+| Setup success marker | `~/qemu-aplication/setup.status` |
+| QEMU process PID | `~/qemu-aplication/qemu.pid` |
+
+## Build from source
+
+Requirements: **JDK 17**, **Android SDK 35**, **Gradle 8.9**.
 
 ```bash
-pkg update && pkg upgrade
-pkg install qemu-system-x86-64-headless qemu-system-i386-headless qemu-system-aarch64-headless qemu-utils
-termux-setup-storage
-mkdir -p ~/.termux
-echo 'allow-external-apps = true' >> ~/.termux/termux.properties
+gradle assembleDebug
 ```
 
-Then fully restart Termux. In Android **Settings → Apps → Qemu Application → Permissions → Additional permissions**, enable **Run commands in Termux environment** (wording varies by device). If requested, grant Termux file/media access after `termux-setup-storage`. The app calls Termux's documented `RUN_COMMAND` Intent; its availability depends on Termux permissions and manufacturer restrictions.
+The APK is written to `app/build/outputs/apk/debug/app-debug.apk`. GitHub Actions automatically builds and uploads the APK after commits to `main`.
 
-## Run a VM
+## Security / compatibility notes
 
-1. Copy a small supported PC-bootable ISO (for example, an x86_64 Linux installer) into the phone's **Download** folder.
-2. Enter its absolute path, for example `/sdcard/Download/linux.iso` (or `/storage/emulated/0/Download/linux.iso`).
-3. Choose `x86_64`, RAM (recommend 1024 MB), and vCPU count (recommend 2).
-4. Tap **Create virtual disk** once. To verify, check `~/qemu-aplication/create-disk.log` in Termux.
-5. Tap **Start QEMU**. For errors, inspect `~/qemu-aplication/run.log` in Termux.
-6. Tap **Open VNC display**, or **Reconnect** if the VM has not finished starting.
-7. After installing the guest OS, clear the ISO path to boot from the QCOW2 disk.
+- Only run trusted guest images. QEMU is complex native software and guests may expose emulator vulnerabilities.
+- VNC without a password and QMP are bound to **127.0.0.1**, not a public network interface. However, other apps on the same device may still attempt connections; do not put sensitive information into experimental guests.
+- Android sandbox restrictions require explicit Termux authorization and storage permissions; bypassing these is intentionally unsupported.
+- Some Android devices may kill Termux background processes even after a successful build. No uptime/stability guarantee is made until real-device testing.
+- This implementation is **not a fork of official QEMU's branding**, and no Apple firmware/OS images are distributed.
 
-The virtual disk is stored at `$HOME/qemu-aplication/disk.qcow2` inside Termux. An existing disk is **not** overwritten by Create virtual disk. Only one VM at a time is supported due to fixed local ports. You can stop the VM using **Graceful shutdown** in the main app, which issues QMP `quit` (power off, not ACPI OS shutdown).
+## Credits
 
-## Experimental ARM64 direct-kernel mode
+Independent Android application inspired by:
+[QEMU Android mirror](https://github.com/mirror/qemu-android), [Limbo](https://github.com/limboemu/limbo), [Vectras VM](https://github.com/xoureldeen/Vectras-VM-Android), and [DroidVM](https://github.com/droid-vm/droidvm).
 
-Select **aarch64 (kernel)**, provide an absolute path to a kernel image compatible with QEMU's `-kernel` loader, optionally supply initrd/DTB/boot arguments, and create a disk first. Serial output is saved to `~/qemu-aplication/run.log` in Termux. VNC may remain blank with serial-only ARM64 guests.
-
-**This is not iOS boot support.** The [ios-emulator](https://github.com/zaidanfaiz/ios-emulator) project is a separate patched-XNU research tree with its own boot requirements. Its XNU artifact is not guaranteed to load via the generic `virt` machine or QEMU's kernel loader.
-
-## Security and limitations
-
-- QEMU software TCG acceleration runs **on the Android phone** under Termux, not on a remote server. Performance can be slow. KVM acceleration is not assumed to exist.
-- VNC has no password, but is bound to **loopback only**. QMP is also loopback only. Other apps running on the same phone may still connect to loopback ports; do not run untrusted local apps alongside sensitive guests.
-- The VNC client handles RAW updates, basic mouse/keyboard, and no-auth RFB; clipboard, audio, multi-touch, resizing and accelerated graphics aren't implemented.
-- The app is an actual installable APK, **but not a fully self-contained QEMU package**. Bundling a QEMU ARM64 runtime and its native dependencies is a separate milestone.
-- x86_64/i386 and experimental ARM64 direct-kernel presets are available. ARM64 ISO/UEFI boot and iOS-specific device emulation are not implemented.
-- The research project [ios-emulator](https://github.com/zaidanfaiz/ios-emulator) is separate. Its experimental XNU boot environment, kernel patches, guest images, custom device tree and boot chain are **not included** here. This project does not claim iOS 16 boots on Android.
-
-## Architecture
-
-```
-Android APK (Java)
-  ├── MainActivity: configure, create disk, start, stop
-  ├── Termux RUN_COMMAND intent (granted by the user)
-  │    └── Termux qemu-system-x86_64 / qemu-img (ARM64 host)
-  │         ├── VNC 127.0.0.1:5901  ──► Android RFB viewer
-  │         └── QMP 127.0.0.1:4444  ◄── Android stop button
-  └── ViewerActivity: bitmap rendering and mouse/keyboard events
-```
-
-## References and attribution
-
-The implementation uses Android/Java components and does not copy source from these projects:
-
-- [Android QEMU mirror](https://github.com/mirror/qemu-android): Google's Android emulator downstream of QEMU, not a ready-made VM embedding SDK.
-- [Limbo Emulator](https://github.com/limboemu/limbo): QEMU Android manager reference.
-- [Vectras VM](https://github.com/xoureldeen/Vectras-VM-Android): Android VM management and runtime packaging reference.
-- [DroidVM](https://github.com/Droid-VM/DroidVM): optional hardware-hypervisor architecture requiring supported devices/root.
-- [Termux RUN_COMMAND specification](https://github.com/termux/termux-app/wiki/RUN_COMMAND-Intent).
-
-This application's original code is MIT-licensed. **QEMU and Termux are separate upstream projects with their own licenses.** Bundling or distributing their binaries later will require preserving upstream license obligations.
-
-## Roadmap
-
-- [x] GitHub Actions APK CI
-- [x] Functional Termux bridge, disk creation, QEMU launch, basic VNC, QMP
-- [ ] Native ARM64 QEMU package bundled in APK (remove Termux dependency)
-- [ ] USB/HID polish, guest audio, complete keyboard, clipboard
-- [x] Experimental ARM64 direct-kernel profile
-- [ ] ARM64 UEFI/ISO boot, multi-VM profiles, image import
-- [ ] Separate compatibility research for the iOS/XNU project
-
-Contributions and experimental testing are welcome. Report crash logs and the phone's Android version in Issues.
+Code: MIT license. QEMU and Termux retain their respective upstream licenses.

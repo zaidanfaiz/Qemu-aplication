@@ -7,6 +7,8 @@
     </queries>
     <application android:allowBackup="false"
                  android:label="Qemu Application"
+                 android:icon="@drawable/qemu_brand"
+                 android:roundIcon="@drawable/qemu_brand"
                  android:usesCleartextTraffic="false"
                  android:theme="@style/AppTheme">
         <activity android:name=".ViewerActivity"
