@@ -30,7 +30,7 @@ public class MainActivity extends Activity {
     private static final String TERMUX_BASH = "/data/data/com.termux/files/usr/bin/bash";
     private static final String TERMUX_HOME = "/data/data/com.termux/files/home";
     private static final int TEXT = 0xFFDFE7F5, MUTED = 0xFF9CAFC8, BG = 0xFF0B1220, CARD = 0xFF172238;
-    private EditText iso, ram, cores, diskSize;
+    private EditText iso, ram, cores, diskSize, kernel, initrd, dtb, kernelArgs;
     private Spinner cpu;
     private TextView status;
     private SharedPreferences preferences;
@@ -67,12 +67,17 @@ public class MainActivity extends Activity {
         form.addView(spacer(14));
         form.addView(label("Guest CPU architecture", 14, TEXT, true));
         cpu = new Spinner(this);
-        String[] arch = {"x86_64", "i386"};
+        String[] arch = {"x86_64", "i386", "aarch64 (kernel)"};
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, arch);
         cpu.setAdapter(adapter);
         cpu.setSelection(preferences.getInt("arch", 0));
         form.addView(cpu, new LinearLayout.LayoutParams(-1, dp(49)));
-        iso = field(form, "Boot ISO path (optional)", "/sdcard/Download/linux.iso", preferences.getString("iso", ""), false);
+        iso = field(form, "Boot ISO path (x86 only)", "/sdcard/Download/linux.iso", preferences.getString("iso", ""), false);
+        form.addView(label("EXPERIMENTAL ARM64 DIRECT-KERNEL BOOT", 12, 0xFF60A5FA, true));
+        kernel = field(form, "ARM64 kernel image path", "/sdcard/Download/Image", preferences.getString("kernel", ""), false);
+        initrd = field(form, "ARM64 initrd (optional)", "/sdcard/Download/initramfs.cpio.gz", preferences.getString("initrd", ""), false);
+        dtb = field(form, "ARM64 DTB (optional)", "/sdcard/Download/virt.dtb", preferences.getString("dtb", ""), false);
+        kernelArgs = field(form, "ARM64 kernel arguments", "console=ttyAMA0", preferences.getString("kargs", "console=ttyAMA0"), false);
         ram = field(form, "RAM (MB)", "1024", preferences.getString("ram", "1024"), true);
         cores = field(form, "vCPU cores", "2", preferences.getString("cores", "2"), true);
         diskSize = field(form, "New disk size (GB)", "8", preferences.getString("disk", "8"), true);
@@ -86,14 +91,14 @@ public class MainActivity extends Activity {
         LinearLayout setup = panel(root);
         setup.addView(label("FIRST-TIME SETUP", 12, 0xFF60A5FA, true));
         setup.addView(spacer(8));
-        setup.addView(label("1. Install Termux from F-Droid or official GitHub.\n2. In Termux: pkg update && pkg install qemu-system-x86-64-headless qemu-utils\n3. Run: termux-setup-storage\n4. Run: mkdir -p ~/.termux && echo 'allow-external-apps = true' >> ~/.termux/termux.properties\n5. In Android app settings, grant Qemu Application permission to run commands in Termux. Restart Termux.\n6. Put a compatible boot ISO in Download, enter its path, create a disk, start VM, then open VNC.", 13, MUTED, false));
+        setup.addView(label("1. Install Termux from F-Droid or official GitHub.\n2. In Termux: pkg update && pkg install qemu-system-x86-64-headless qemu-system-aarch64-headless qemu-utils\n3. Run: termux-setup-storage\n4. Run: mkdir -p ~/.termux && echo 'allow-external-apps = true' >> ~/.termux/termux.properties\n5. In Android app settings, grant Qemu Application permission to run commands in Termux. Restart Termux.\n6. Put a compatible boot ISO in Download, enter its path, create a disk, start VM, then open VNC.", 13, MUTED, false));
         action(setup, "Open Termux", false, () -> openTermux());
 
         root.addView(spacer(14));
         status = label("Idle • Ready to configure", 13, 0xFF93C5FD, false);
         root.addView(status);
         root.addView(spacer(12));
-        root.addView(label("Developer preview: QEMU itself is installed in Termux, not bundled in this APK. iOS guest boot is NOT implemented.", 12, MUTED, false));
+        root.addView(label("Developer preview: Termux-based QEMU. Experimental ARM64 kernel mode is not an iOS boot implementation.", 12, MUTED, false));
     }
 
     private void persist() {
@@ -101,7 +106,11 @@ public class MainActivity extends Activity {
           .putString("iso", iso.getText().toString().trim())
           .putString("ram", ram.getText().toString().trim())
           .putString("cores", cores.getText().toString().trim())
-          .putString("disk", diskSize.getText().toString().trim()).apply();
+          .putString("disk", diskSize.getText().toString().trim())
+          .putString("kernel", kernel.getText().toString().trim())
+          .putString("initrd", initrd.getText().toString().trim())
+          .putString("dtb", dtb.getText().toString().trim())
+          .putString("kargs", kernelArgs.getText().toString().trim()).apply();
     }
 
     private void createDisk() {
@@ -120,6 +129,7 @@ public class MainActivity extends Activity {
         persist();
         int memory = numeric(ram, 256, 8192), count = numeric(cores, 1, 8);
         if (memory == -1 || count == -1) { info("RAM: 256–8192 MB. Cores: 1–8."); return; }
+        if (cpu.getSelectedItemPosition() == 2) { startArm64(memory, count); return; }
         String bootIso = iso.getText().toString().trim();
         if (!bootIso.isEmpty() && !(bootIso.startsWith("/sdcard/") ||
              bootIso.startsWith("/storage/emulated/0/") || bootIso.startsWith("/data/data/com.termux/files/home/"))) {
@@ -142,6 +152,40 @@ public class MainActivity extends Activity {
           " -qmp tcp:127.0.0.1:4444,server=on,wait=off" +
           " > \"$HOME/qemu-aplication/run.log\" 2>&1";
         runTermux(command, "Start request sent. Once QEMU is running, open VNC display (127.0.0.1:5901).");
+    }
+
+    private boolean acceptablePath(String path) {
+        return !path.isEmpty() && !path.contains("\n") && !path.contains("\r")
+          && (path.startsWith("/sdcard/") || path.startsWith("/storage/emulated/0/")
+          || path.startsWith("/data/data/com.termux/files/home/"));
+    }
+
+    private void startArm64(int memory, int count) {
+        String k = kernel.getText().toString().trim();
+        String r = initrd.getText().toString().trim();
+        String d = dtb.getText().toString().trim();
+        String args = kernelArgs.getText().toString().trim();
+        if (!acceptablePath(k) || (!r.isEmpty() && !acceptablePath(r)) ||
+            (!d.isEmpty() && !acceptablePath(d)) ||
+            args.contains("\n") || args.contains("\r") || args.length() > 1024) {
+            info("ARM64 needs valid paths and boot arguments.");
+            return;
+        }
+        String other = (r.isEmpty() ? "" : " -initrd " + quote(r))
+                     + (d.isEmpty() ? "" : " -dtb " + quote(d));
+        String script = "mkdir -p \"$HOME/qemu-aplication\"; " +
+          "if ! command -v qemu-system-aarch64 >/dev/null; then echo 'Install qemu-system-aarch64-headless' > \"$HOME/qemu-aplication/run.log\"; exit 127; fi; " +
+          "if [ ! -f \"$HOME/qemu-aplication/disk.qcow2\" ]; then echo 'Create disk first' > \"$HOME/qemu-aplication/run.log\"; exit 1; fi; " +
+          "exec qemu-system-aarch64 -machine virt,accel=tcg -cpu cortex-a72" +
+          " -smp " + count + " -m " + memory + " -kernel " + quote(k) + other +
+          " -append " + quote(args) +
+          " -drive file=\"$HOME/qemu-aplication/disk.qcow2\",format=qcow2,if=virtio" +
+          " -device ramfb -device qemu-xhci -device usb-kbd -device usb-tablet" +
+          " -netdev user,id=net0 -device virtio-net-device,netdev=net0" +
+          " -display none -vnc 127.0.0.1:1 -serial stdio -monitor none" +
+          " -qmp tcp:127.0.0.1:4444,server=on,wait=off" +
+          " > \"$HOME/qemu-aplication/run.log\" 2>&1";
+        runTermux(script, "ARM64 launch requested. Inspect serial logs in Termux at ~/qemu-aplication/run.log.");
     }
 
     private void stopVm() {
