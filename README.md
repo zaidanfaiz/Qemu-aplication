@@ -38,6 +38,18 @@ Or use [GitHub Actions](https://github.com/zaidanfaiz/Qemu-aplication/actions/wo
 
 The development APK uses the Android **debug** signing certificate. It is intended for testing, not production distribution.
 
+## Panduan cepat (Bahasa Indonesia)
+
+1. Install [Termux resmi](https://github.com/termux/termux-app/releases) dan buka sekali.
+2. Install APK Qemu Application dari **Releases**. Tekan **Setup QEMU**.
+3. Pada penggunaan pertama, app menyalin perintah otorisasi. Paste di Termux, jalankan, lalu berikan izin **Run commands in Termux environment** untuk Qemu Application melalui pengaturan Android.
+4. Kembali ke APK, tekan **Setup QEMU** lagi. Perintah instalasi QEMU dikirim ke Termux. Tunggu sampai selesai dan izinkan akses storage jika diminta.
+5. Taruh ISO Linux di `Download`; pilih `x86_64`, RAM 1024 MB, 2 core, dan buat disk lewat **Create virtual disk**.
+6. Isi path ISO lengkap, misalnya `/sdcard/Download/alpine-linux.iso`. Tekan **Start QEMU**, lalu **Check VM status**.
+7. Setelah VNC aktif, tekan **Open VNC display**. Untuk berhenti, matikan OS dari dalam guest atau gunakan tombol **Stop VM** (penghentian paksa).
+
+**Catatan:** Tanpa izin awal Termux, Android tidak mengizinkan instalasi otomatis melalui APK lain. Jika setup gagal, buka `~/qemu-aplication/setup.log` di Termux. Bila sesi setup tidak tampil pada Android 10+, coba buka notifikasi Termux atau izinkan **Display over other apps** untuk Termux sesuai pengaturan perangkat.
+
 ## Tutorial: first-time setup
 
 ### 1. Install official Termux
@@ -118,7 +130,7 @@ This is a **generic QEMU `virt`** machine. It does not emulate an iPhone SoC or 
 
 | Problem | What to check |
 | --- | --- |
-| Setup does not open a Termux session | Open Termux once, run the one-time authorization command, grant `RUN_COMMAND`, and tap Setup again |
+| Setup does not open a Termux session | Open Termux once, run the one-time authorization command, grant `RUN_COMMAND`, and tap Setup again. On Android 10+, also check Termux notification or optional Display over other apps permission |
 | Automatic install fails | Check internet, Termux repository mirror, and `~/qemu-aplication/setup.log`; rerun Setup |
 | ISO cannot be read | Confirm exact filename/path, storage permission, and that Termux can read the file |
 | Start request sent but VM is offline | Review `~/qemu-aplication/run.log` in Termux; check QEMU binary, disk, and port conflicts |
