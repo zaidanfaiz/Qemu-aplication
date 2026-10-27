@@ -11,6 +11,8 @@ on:
       - 'app/src/main/java/dev/zaidan/qemu/NativeFirmware.java'
       - 'app/src/main/java/dev/zaidan/qemu/MainActivity.java'
       - 'app/src/main/java/dev/zaidan/qemu/ViewerActivity.java'
+      - 'app/src/main/AndroidManifest.xml'
+      - 'app/build.gradle'
       - 'app/src/main/java/dev/zaidan/qemu/NativeVmService.java'
   workflow_dispatch:
     inputs:

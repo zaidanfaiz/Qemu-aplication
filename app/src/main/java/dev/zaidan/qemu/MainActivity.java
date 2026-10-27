@@ -107,7 +107,7 @@ public class MainActivity extends Activity {
         feedback = text("No Termux, shell, or external setup required by the app UI.", 12, SECONDARY, false);
         root.addView(feedback);
         root.addView(gap(17));
-        TextView open = text("Display", 14, FG, true);
+        TextView open = text("Open device preview   ›", 14, FG, true);
         open.setPadding(dp(2), dp(13), dp(2), dp(13));
         root.addView(open);
         open.setOnClickListener(v -> {
@@ -139,7 +139,7 @@ public class MainActivity extends Activity {
         PopupMenu menu = new PopupMenu(this, anchor);
         String[] labels = {"Choose ISO", "Choose custom kernel", "Choose DTB",
                 "Architecture", "RAM", "CPU cores", "Disk capacity",
-                "Create virtual disk", "Open VM display", "Stop VM", "Native engine status", "View QEMU log"};
+                "Create virtual disk", "Open device preview", "Stop VM", "Native engine status", "View QEMU log"};
         for (int i = 0; i < labels.length; i++) menu.getMenu().add(0, i, i, labels[i]);
         menu.setOnMenuItemClickListener(item -> {
             switch (item.getItemId()) {
