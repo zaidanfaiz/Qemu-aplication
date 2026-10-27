@@ -30,7 +30,8 @@ import java.io.InputStream;
 import java.io.RandomAccessFile;
 
 public class MainActivity extends Activity {
-    private static final int ISO = 501, KERNEL = 502, DTB = 503;
+    private static final int ISO = 501, KERNEL = 502, DTB = 503, ROM = 504;
+    private volatile boolean importing;
     private static final int BG = 0xFF0E1014, PANEL = 0xFF1B1E25, LINE = 0xFF363B45;
     private static final int FG = 0xFFEAF0F8, SECONDARY = 0xFFADB4C0;
     private SharedPreferences prefs;
@@ -131,7 +132,12 @@ public class MainActivity extends Activity {
                     prefs.getInt("cores", 2) + " cores");
         }
         if (mediaText != null) {
-            mediaText.setText(prefs.getString("isoName", "No boot image selected"));
+            String bootMode = prefs.getString("bootMode", "iso");
+            if ("rom".equals(bootMode)) {
+                mediaText.setText("ROM disk · " + prefs.getString("romName", "Not selected"));
+            } else {
+                mediaText.setText("Installer ISO · " + prefs.getString("isoName", "Not selected"));
+            }
         }
     }
 
@@ -139,7 +145,8 @@ public class MainActivity extends Activity {
         PopupMenu menu = new PopupMenu(this, anchor);
         String[] labels = {"Choose ISO", "Choose custom kernel", "Choose DTB",
                 "Architecture", "RAM", "CPU cores", "Disk capacity",
-                "Create virtual disk", "Open device preview", "Stop VM", "Native engine status", "View QEMU log"};
+                "Create virtual disk", "Open device preview", "Stop VM", "Native engine status",
+                "View QEMU log", "Import Android ROM (ISO/disk)", "Boot source"};
         for (int i = 0; i < labels.length; i++) menu.getMenu().add(0, i, i, labels[i]);
         menu.setOnMenuItemClickListener(item -> {
             switch (item.getItemId()) {
@@ -155,6 +162,8 @@ public class MainActivity extends Activity {
                 case 9: NativeVmService.stop(this); break;
                 case 10: engineDialog(); break;
                 case 11: showLog(); break;
+                case 12: chooseFile(ROM); break;
+                case 13: chooseBootSource(); break;
                 default: break;
             }
             return true;
@@ -172,6 +181,33 @@ public class MainActivity extends Activity {
                             dialog.dismiss();
                             refresh();
                         }).setNegativeButton("Cancel", null).show();
+    }
+
+    private void chooseBootSource() {
+        if (NativeVmService.isRunning() || importing) {
+            message("Stop VM and finish importing before changing boot source.");
+            return;
+        }
+        String[] choices = {"Install from ISO (uses machine.img)",
+                "Boot imported ROM disk (separate image)"};
+        boolean fromRom = "rom".equals(prefs.getString("bootMode", "iso"));
+        new AlertDialog.Builder(this).setTitle("Boot source")
+                .setSingleChoiceItems(choices, fromRom ? 1 : 0, (dialog, selected) -> {
+                    if (selected == 1) {
+                        File rom = new File(prefs.getString("romPath", ""));
+                        if (!rom.isFile()) {
+                            message("Import a full Android-x86 PC ROM disk first.");
+                            return;
+                        }
+                        prefs.edit().putString("bootMode", "rom")
+                                .putString("arch", "x86_64").apply();
+                    } else {
+                        prefs.edit().putString("bootMode", "iso")
+                                .putString("arch", "x86_64").apply();
+                    }
+                    dialog.dismiss();
+                    refresh();
+                }).setNegativeButton("Cancel", null).show();
     }
 
     private void numberDialog(String title, String key, int defaultValue, int min, int max) {
@@ -204,48 +240,137 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
-        if (requestCode != ISO && requestCode != KERNEL && requestCode != DTB) return;
-        Uri source = data.getData();
-        String kind = requestCode == ISO ? "iso" : requestCode == KERNEL ? "kernel" : "dtb";
+        if (requestCode != ISO && requestCode != KERNEL &&
+                requestCode != DTB && requestCode != ROM) return;
+        if (NativeVmService.isRunning()) {
+            message("Stop the VM before changing its boot media.");
+            return;
+        }
+        if (importing) {
+            message("Another file is still importing.");
+            return;
+        }
+
+        final Uri source = data.getData();
         String sourceName = "selected file";
         try (Cursor cursor = getContentResolver().query(source,
                 new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
             if (cursor != null && cursor.moveToFirst())
                 sourceName = cursor.getString(0);
         } catch (Exception ignored) {}
-        if (requestCode == ISO && !sourceName.toLowerCase(java.util.Locale.ROOT).endsWith(".iso")) {
-            message("Select a .iso installer image.");
+        if (sourceName == null || sourceName.trim().isEmpty()) sourceName = "selected file";
+        final String displayName = sourceName.length() > 120 ?
+                sourceName.substring(0, 120) : sourceName;
+        final String lowerName = displayName.toLowerCase(java.util.Locale.ROOT);
+        if (requestCode == ISO && !RomImageInspector.isIsoName(displayName)) {
+            message("Select an ISO installer. For a full disk image, choose Import Android ROM.");
             return;
         }
-        final String chosenName = sourceName;
-        feedback.setText("Importing " + chosenName + "…");
+        if (requestCode == ROM && (lowerName.endsWith(".zip")
+                || lowerName.endsWith(".7z") || lowerName.endsWith(".tar")
+                || lowerName.endsWith(".gz") || lowerName.endsWith(".bin"))) {
+            new AlertDialog.Builder(this).setTitle("ROM package not bootable")
+                    .setMessage("ZIP/OTA Android yang dibuat untuk HP tidak bisa langsung di-flash " +
+                            "ke mesin PC QEMU. Pilih installer Android-x86 .iso atau full VM " +
+                            "disk .img/.raw/.qcow2. File system.img/boot.img/GSI juga bukan satu disk bootable.")
+                    .setPositiveButton("OK", null).show();
+            return;
+        }
+
+        final boolean romMode = requestCode == ROM && !RomImageInspector.isIsoName(displayName);
+        Runnable doImport = () -> importMedia(source, displayName, requestCode, romMode);
+        if (romMode && !prefs.getString("romPath", "").isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Replace imported ROM?")
+                    .setMessage("Replacing the imported VM ROM image may erase changes made " +
+                            "inside that ROM. Your existing machine.img disk and original " +
+                            "file in Downloads are preserved.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Replace", (dialog, which) -> doImport.run()).show();
+        } else {
+            doImport.run();
+        }
+    }
+
+    private void importMedia(Uri uri, String name, int requestCode, boolean romMode) {
+        if (importing || NativeVmService.isRunning()) {
+            message("Finish current VM/import first.");
+            return;
+        }
+        importing = true;
+        if (feedback != null) feedback.setText("Importing " + name + "…");
         new Thread(() -> {
+            File pending = null;
             try {
                 File dir = new File(getFilesDir(), "media");
-                if (!dir.exists() && !dir.mkdirs()) throw new IOException("Cannot create media directory");
-                File pending = new File(dir, kind + ".partial");
-                File target = new File(dir, kind + ".img");
-                try (InputStream input = getContentResolver().openInputStream(source);
+                if (!dir.isDirectory() && !dir.mkdirs())
+                    throw new IOException("Cannot create private media directory");
+                String kind = romMode ? "rom" :
+                        requestCode == KERNEL ? "kernel" :
+                        requestCode == DTB ? "dtb" : "iso";
+                pending = new File(dir, kind + ".partial");
+                if (pending.exists() && !pending.delete())
+                    throw new IOException("Cannot clear interrupted import");
+                long totalBytes = 0;
+                try (InputStream input = getContentResolver().openInputStream(uri);
                      FileOutputStream output = new FileOutputStream(pending)) {
                     if (input == null) throw new IOException("Selected file cannot be read");
                     byte[] chunk = new byte[256 * 1024];
                     int size;
-                    while ((size = input.read(chunk)) != -1) output.write(chunk, 0, size);
+                    while ((size = input.read(chunk)) != -1) {
+                        if (size == 0) continue;
+                        output.write(chunk, 0, size);
+                        totalBytes += size;
+                    }
                     output.getFD().sync();
                 }
-                if (target.exists() && !target.delete()) throw new IOException("Could not replace old image");
-                if (!pending.renameTo(target)) throw new IOException("Could not finalize imported image");
-                prefs.edit().putString(kind + "Path", target.getAbsolutePath())
-                        .putString(kind + "Name", chosenName).apply();
+
+                String format = null;
+                if (romMode || requestCode == ISO || requestCode == ROM)
+                    format = RomImageInspector.inspect(pending, name);
+
+                String filename = romMode ?
+                        ("qcow2".equals(format) ? "rom.qcow2" : "rom.raw") : kind + ".img";
+                File target = new File(dir, filename);
+                if (target.exists() && !target.delete())
+                    throw new IOException("Could not replace old media file");
+                if (!pending.renameTo(target))
+                    throw new IOException("Could not finalize imported file");
+
+                SharedPreferences.Editor update = prefs.edit();
+                if (romMode) {
+                    update.putString("romPath", target.getAbsolutePath())
+                            .putString("romName", name)
+                            .putString("romFormat", format)
+                            .putString("bootMode", "rom")
+                            .putString("arch", "x86_64");
+                } else {
+                    update.putString(kind + "Path", target.getAbsolutePath())
+                            .putString(kind + "Name", name);
+                    if ("iso".equals(kind)) {
+                        update.putString("bootMode", "iso").putString("arch", "x86_64");
+                    }
+                }
+                update.apply();
+                final String mode = romMode ? "ROM disk (bootable PC image)" :
+                        (requestCode == ROM || requestCode == ISO) ? "ISO installer" : kind;
+                final long imported = totalBytes;
                 runOnUiThread(() -> {
-                    feedback.setText(chosenName + " imported to private app storage");
+                    if (feedback != null)
+                        feedback.setText(mode + " imported: " + name + " (" +
+                                (imported / (1024 * 1024)) + " MB)");
                     refresh();
                 });
-            } catch (Exception e) {
-                String error = e.getMessage();
-                runOnUiThread(() -> feedback.setText("Import failed: " + error));
+            } catch (Exception ex) {
+                final String error = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+                runOnUiThread(() -> {
+                    if (feedback != null) feedback.setText("Import failed: " + error);
+                    message("Import failed: " + error);
+                });
+            } finally {
+                if (pending != null && pending.exists()) pending.delete();
+                importing = false;
             }
-        }, "native-import").start();
+        }, "rom-media-import").start();
     }
 
     private File disk() {
@@ -280,7 +405,19 @@ public class MainActivity extends Activity {
             engineDialog();
             return;
         }
-        if (!disk().exists()) {
+        if (importing) {
+            message("Media import still running; finish importing before boot.");
+            return;
+        }
+        boolean fromRom = "rom".equals(prefs.getString("bootMode", "iso"));
+        if (fromRom) {
+            File rom = new File(prefs.getString("romPath", ""));
+            if (!"x86_64".equals(arch) || !rom.isFile()) {
+                message("Select an imported Android-x86 PC ROM disk first.");
+                return;
+            }
+        }
+        if (!fromRom && !disk().exists()) {
             new AlertDialog.Builder(this).setTitle("No virtual disk")
                     .setMessage("Create the virtual disk before attempting to boot.")
                     .setPositiveButton("Create disk", (d, w) -> createDisk())
