@@ -9,6 +9,9 @@ on:
       - 'scripts/qemu-lab/bundle_termux_closure.py'
       - 'scripts/qemu-lab/rewrite_elf_inplace.py'
       - 'app/src/main/java/dev/zaidan/qemu/NativeFirmware.java'
+      - 'app/src/main/java/dev/zaidan/qemu/MainActivity.java'
+      - 'app/src/main/java/dev/zaidan/qemu/ViewerActivity.java'
+      - 'app/src/main/java/dev/zaidan/qemu/NativeVmService.java'
   workflow_dispatch:
     inputs:
       minimal_run_id:
@@ -79,6 +82,25 @@ jobs:
             input-runtime/qemu-android-minimal \
             app/src/main/jniLibs/arm64-v8a \
             native-runtime-audit
+      - name: Assert original ELF program headers and dynstr remain untouched
+        run: |
+          set -euo pipefail
+          before=input-runtime/qemu-android-minimal/extracted/data/data/com.termux/files/usr/bin
+          after=app/src/main/jniLibs/arm64-v8a
+          for arch in aarch64 x86_64; do
+            input="$before/qemu-system-$arch"
+            output="$after/libqemu-system-$arch.so"
+            test -s "$input" && test -s "$output"
+            diff -u <(readelf -Wl "$input") <(readelf -Wl "$output")
+            original=$(readelf -d "$input" | grep -E '\(STRTAB\)|\(STRSZ\)')
+            updated=$(readelf -d "$output" | grep -E '\(STRTAB\)|\(STRSZ\)')
+            if [[ "$original" != "$updated" ]]; then
+              echo "::error::Dynamic string table moved in $arch; potential Android linker failure"
+              exit 1
+            fi
+            readelf -d "$output" | grep 'Library runpath: \[\$ORIGIN\]'
+            echo "ELF layout preserved for QEMU $arch"
+          done
       - name: Install JDK 17
         uses: actions/setup-java@v4
         with:
