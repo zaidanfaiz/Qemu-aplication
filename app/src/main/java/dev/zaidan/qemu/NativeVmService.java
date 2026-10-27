@@ -77,6 +77,8 @@ public final class NativeVmService extends Service {
                 String dtb = pref.getString("dtbPath", "");
                 String bootMode = pref.getString("bootMode", "iso");
                 boolean useRom = "rom".equals(bootMode);
+                if ("installed".equals(bootMode) && !"x86_64".equals(arch))
+                    throw new java.io.IOException("Installed PC disk is x86_64 only.");
                 String romPath = pref.getString("romPath", "");
                 String romFormat = pref.getString("romFormat", "raw");
                 if (useRom) {
@@ -114,7 +116,11 @@ public final class NativeVmService extends Service {
                         args.add("-drive");
                         args.add("file=" + disk.getAbsolutePath() + ",format=raw,if=ide");
                     }
-                    if (!useRom && !iso.isEmpty()) {
+                    if ("installed".equals(bootMode)) {
+                        // Detach installer CD-ROM, boot Android-x86 from machine.img.
+                        args.add("-boot"); args.add("order=c");
+                    }
+                    if (!useRom && !"installed".equals(bootMode) && !iso.isEmpty()) {
                         args.add("-drive"); args.add("file=" + iso + ",media=cdrom,readonly=on");
                         args.add("-boot"); args.add("order=d");
                     }
