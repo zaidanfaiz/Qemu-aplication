@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/qemu-native-runtime-lab.yml'
       - 'scripts/qemu-lab/bundle_termux_closure.py'
+      - 'scripts/qemu-lab/rewrite_elf_inplace.py'
       - 'app/src/main/java/dev/zaidan/qemu/NativeFirmware.java'
   workflow_dispatch:
     inputs:
@@ -37,7 +38,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y python3 patchelf binutils dpkg xz-utils file
           python3 -m py_compile scripts/qemu-lab/stage_qemu_executables.py \
-            scripts/qemu-lab/bundle_termux_closure.py
+            scripts/qemu-lab/bundle_termux_closure.py \
+            scripts/qemu-lab/rewrite_elf_inplace.py
       - name: Download actual QEMU 11.1.2 Android ARM64 minimal binary
         uses: actions/download-artifact@v4
         with:
