@@ -20,6 +20,7 @@ import android.widget.PopupMenu;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.EditText;
+import android.widget.ScrollView;
 import android.text.InputType;
 
 import java.io.File;
@@ -293,22 +294,64 @@ public class MainActivity extends Activity {
     private void showLog() {
         File log = new File(getFilesDir(), "qemu.log");
         if (!log.isFile()) {
-            new AlertDialog.Builder(this).setTitle("QEMU log")
-                .setMessage("No QEMU log yet. It is created after native process launch.")
-                .setPositiveButton("OK", null).show();
+            new AlertDialog.Builder(this)
+                .setTitle("QEMU runtime log")
+                .setMessage("Belum ada log. Jalankan VM lebih dulu, kemudian buka kembali.")
+                .setPositiveButton("Close", null).show();
             return;
         }
         try {
-            java.io.RandomAccessFile input = new java.io.RandomAccessFile(log, "r");
-            long start = Math.max(0, input.length() - 12000);
-            input.seek(start);
-            byte[] content = new byte[(int)(input.length() - start)];
-            input.readFully(content);
-            input.close();
-            new AlertDialog.Builder(this).setTitle("QEMU runtime log")
-              .setMessage(new String(content, java.nio.charset.StandardCharsets.UTF_8))
-              .setPositiveButton("Close", null).show();
-        } catch (Exception e) { message("Cannot read log: " + e.getMessage()); }
+            String contents;
+            // Show the most recent 128 KB; keep complete content for Copy/Share
+            // if the log file is reasonably sized. A runaway linker warning
+            // must not freeze the UI or exhaust Android memory.
+            try (java.io.RandomAccessFile in = new java.io.RandomAccessFile(log, "r")) {
+                long from = Math.max(0, in.length() - 128 * 1024);
+                in.seek(from);
+                byte[] tail = new byte[(int)(in.length() - from)];
+                in.readFully(tail);
+                contents = (from == 0 ? "" : "[Log awal dipotong. Menampilkan 128 KB terakhir.]\n\n")
+                        + new String(tail, java.nio.charset.StandardCharsets.UTF_8);
+            }
+            ScrollView logScroll = new ScrollView(this);
+            logScroll.setFillViewport(false);
+            TextView selectableLog = new TextView(this);
+            selectableLog.setText(contents);
+            selectableLog.setTextSize(12);
+            selectableLog.setTextColor(0xFFE6EAF0);
+            selectableLog.setTypeface(Typeface.MONOSPACE);
+            selectableLog.setTextIsSelectable(true);
+            selectableLog.setPadding(dp(18), dp(12), dp(18), dp(12));
+            logScroll.addView(selectableLog);
+            LinearLayout root = new LinearLayout(this);
+            root.setOrientation(LinearLayout.VERTICAL);
+            root.addView(logScroll, new LinearLayout.LayoutParams(-1, 0, 1));
+            AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("QEMU runtime log")
+                .setView(root)
+                .setNeutralButton("Copy log", (d, w) -> {
+                    android.content.ClipboardManager cb = (android.content.ClipboardManager)
+                        getSystemService(CLIPBOARD_SERVICE);
+                    cb.setPrimaryClip(android.content.ClipData.newPlainText("QEMU log", contents));
+                    Toast.makeText(this, "Log copied to clipboard", Toast.LENGTH_SHORT).show();
+                })
+                .setPositiveButton("Share", (d, w) -> {
+                    Intent send = new Intent(Intent.ACTION_SEND);
+                    send.setType("text/plain");
+                    send.putExtra(Intent.EXTRA_TEXT, contents);
+                    startActivity(Intent.createChooser(send, "Share QEMU log"));
+                })
+                .setNegativeButton("Close", null).create();
+            dialog.setOnShowListener(v -> {
+                android.view.WindowManager.LayoutParams lp = dialog.getWindow().getAttributes();
+                lp.width = getResources().getDisplayMetrics().widthPixels - dp(32);
+                lp.height = (int)(getResources().getDisplayMetrics().heightPixels * .76f);
+                dialog.getWindow().setAttributes(lp);
+            });
+            dialog.show();
+        } catch (Exception e) {
+            message("Cannot open QEMU log: " + e.getMessage());
+        }
     }
 
     private void engineDialog() {
