@@ -44,29 +44,6 @@ Antarmuka menggunakan Android native Java. Emulator QEMU dikompilasi untuk **hos
 
 </details>
 
-## ISO Input Detection: keyboard saat boot atau touchscreen?
-
-Saat memilih ISO, aplikasi memindai volume label ISO9660, file konfigurasi **GRUB/ISOLINUX/SYSLINUX**, menu instalasi, dan timeout boot. Hasilnya otomatis muncul pada kartu VM dan dialog pemeriksaan. Bisa juga buka menu **⋮ → Analyze ISO: keyboard or touch?**.
-
-**Deteksi dilakukan dari konten ISO, bukan hanya nama file.** Aplikasi membagi hasil menjadi tiga tahap:
-
-| Tahap | Hasil yang mungkin | Artinya |
-|---|---|---|
-| Bootloader | *Kemungkinan perlu tombol navigasi*, atau *tidak diketahui* | GRUB/ISOLINUX dapat menampilkan menu yang menggunakan tombol arah/Enter, termasuk bila ada autoboot timeout |
-| Installer | *YA, perlu keyboard* untuk installer Android-x86 berbasis teks, atau *belum dapat dipastikan* | Installer Android-x86 tidak otomatis mendukung input sentuh sebelum Android boot |
-| OS setelah boot | *Belum bisa dipastikan* | Kemampuan touchscreen bergantung pada driver dan perangkat virtual input QEMU; bahkan file ISO yang punya Live mode belum menjamin input touch berfungsi |
-
-**Contoh konkret:** ISO Android-x86 dapat memiliki opsi **Live CD** dan **Installation**. Live mode mungkin autoboot menuju UI Android yang dapat menerima pointer/tablet; mode Installation memakai dialog partisi, GRUB, dan pemilihan format yang membutuhkan input keyboard. Aplikasi tidak membuat klaim pasti 'tanpa keyboard' hanya karena mendeteksi boot timeout.
-
-Sumber penelitian:
-- [Android-x86 VirtualBox documentation](https://github.com/android-x86/android-x86.github.io/blob/master/documentation/virtualbox.html) menjelaskan pemilihan menu memakai tombol arah/Enter.
-- [Android-x86 Installation Howto](https://www.android-x86.org/installhowto.html) membahas installer berbasis teks dan menu partisi.
-- [Bliss OS QEMU docs](https://docs.blissos.org/installation/install-in-a-virtual-machine/install-in-qemu/) menjelaskan virtual input devices.
-- [Pengalaman Bliss OS tanpa keyboard (Reddit)](https://www.reddit.com/r/BlissOS/comments/p2h2lt) memperlihatkan Live mode dan instalasi memiliki kebutuhan input berbeda.
-- [Pengguna Android-x86 gagal menavigasi installer (Reddit)](https://www.reddit.com/r/Androidx86/comments/otou35) menunjukkan deteksi pra-boot tidak menjamin dukungan driver di installer.
-
-**Catatan:** ISO non-ISO9660, hybrid image dengan layout yang tak dapat dibaca, ISO Windows, atau menu boot dengan format lain akan mendapat status *belum diketahui*, bukan 'keyboard tidak diperlukan'. Viewer tetap touch-only; fitur ini adalah peringatan/deteksi, bukan penyedia driver touchscreen di guest.
-
 ## Custom ROM Android untuk VM (eksperimen)
 
 Menu **⋮ → Import Android ROM (ISO/disk)** bisa memilih image Android PC/VM dan memeriksa isinya. Ini belum menjadi installer ZIP recovery untuk ROM HP.
@@ -99,23 +76,26 @@ ZIP custom ROM untuk Poco, Samsung, iPhone, atau HP tertentu butuh bootloader, r
 
 **Peringatan:** importer hanya memastikan *format* disk yang masuk akal, bukan memverifikasi sistem operasi atau keberhasilan boot. Backup salinan ROM VM sebelum menggantinya. Build GitHub Actions juga belum membuktikan boot Android/iOS di perangkat fisik.
 
-## Kontrol touchscreen tanpa keyboard virtual
+## Two control modes — Phone or Computer
 
-Simulator dibuat khusus untuk **interaksi layar sentuh HP**, bukan remote desktop. Tidak ada lagi panel keyboard, tombol Esc/Tab/Enter, tombol panah, atau menu `Keyboard & send text` pada tampilan VM.
+The VM interface has **two user-selected modes**. We no longer try to guess whether an ISO needs a keyboard. Choose according to what you want to do.
 
-**Mode default (touch kompatibel):** satu jari untuk tap, tekan lama, swipe/drag; dua jari untuk scroll. Sentuhan Android dikonversi menjadi event pointer absolut melalui VNC dan `usb-tablet` (PC x86_64) atau perangkat tablet virtio (ARM64). Tidak ada kursor atau keyboard mengambang dalam UI simulator.
+| Mode | Viewer | Input |
+| --- | --- | --- |
+| **Phone · Touch** | Portrait device mockup; no keyboard controls | Finger tap, hold, swipe and two-finger scroll via VNC; optional experimental guest multitouch |
+| **Computer · Keyboard** | Landscape screen-only, no phone bezel | Mouse/touchpad-like pointer gestures, compact PC shortcut keys, **Android's real installed IME keyboard** (Gboard etc.) |
 
-**Mode tambahan:** lewat `⋯ → Multitouch (experimental)`, aplikasi mengirim beberapa titik sentuh langsung lewat QMP ke perangkat `virtio-multitouch-pci`. Mode ini tidak menjamin iOS atau Android guest menerima input; **driver multitouch yang kompatibel di dalam guest wajib ada**. Jika driver tidak ada, kembali ke `⋯ → Standard touch`.
+To change modes: Home → choose **Phone · Touch** or **Computer · Keyboard** → Start VM. You can also switch from the display menu (⋯). The option is saved for the next session.
 
-Keyboard untuk mengetik, jika diperlukan, harus berasal dari sistem operasi **di dalam guest** (misalnya keyboard layar Android/iOS yang benar-benar boot), bukan dari tombol kontrol emulator. Pada fase BIOS/bootloader yang memerlukan input fisik, beberapa menu mungkin tidak dapat dikendalikan hanya dengan sentuhan.
+### Keyboard that really sends keys to QEMU
 
-### Pengujian
+In Computer mode, tap **⌨ Open** or the text field to open the Android system keyboard. Text committed by the IME is sent to QEMU through **RFB KeyEvent messages**. Special keys include **Esc, Tab, Enter, arrows, Backspace, Delete, Home and End**. **Ctrl** and **Alt** are optional toggle modifiers for key combinations. Hardware keyboard events are supported through the focused input field as well.
 
-1. Pasang kandidat APK native terbaru sebagai pembaruan.
-2. Jalankan VM, sentuh langsung area layarnya untuk tap dan swipe.
-3. Pada guest dengan dukungan mouse/tablet, dua jari mengirim scroll.
-4. Uji mode multitouch hanya jika guest mendukung virtio input.
-5. Jika layar tidak merespons, cek `⋮ → View QEMU log` dari menu utama. Build berhasil bukan bukti iOS mampu boot atau mengenali perangkat touch.
+This is designed for GRUB/ISOLINUX boot menus and installers requiring keyboard input. It is not a screenshot-only input box. Actual guest interpretation still depends on VNC connection and OS keyboard map; the app cannot guarantee every layout or OS recognizes every Unicode character.
+
+### Touch-only mode remains available
+
+Phone mode shows only the guest's display in a portrait device shell. No emulator keyboard UI is added. Guest-native keyboards (if any) are provided by the booted guest OS. Neither mode by itself makes iOS bootable, and QEMU's virtual touchscreen requires a compatible guest driver.
 
 ## Tampilan simulator perangkat
 
@@ -124,7 +104,7 @@ Viewer tidak lagi memaksa posisi lanskap atau menampilkan bar tombol terminal. V
 - Bar atas: kembali ke daftar VM, status koneksi, dan menu **⋯**.
 - Mode default: **Device frame**, dengan bezel, area kamera, dan indikator gestur sebagai elemen visual.
 - **⋯ → Screen only** menyembunyikan bingkai untuk menguji gambar guest dalam area maksimal.
-- Kontrol memakai sentuhan langsung, **tanpa keyboard virtual tambahan** dari aplikasi emulator.
+- Kontrol bisa dipilih antara layar sentuh Phone atau keyboard sistem Android dalam mode Computer.
 - **⋯ → Reconnect display** mengulang koneksi localhost VNC tanpa menutup aplikasi.
 - Sentuhan pada framebuffer yang terlihat dikirim sebagai **pointer VNC tunggal**; huruf / keyboard dikirim sebagai tombol VNC. *Bukan* implementasi multitouch iOS.
 
