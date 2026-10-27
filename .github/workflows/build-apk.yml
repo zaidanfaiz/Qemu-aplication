@@ -48,6 +48,13 @@ jobs:
             app/src/main/java/dev/zaidan/qemu/RomImageInspector.java \
             scripts/qemu-lab/RomImageInspectorTest.java
           java -cp "$RUNNER_TEMP/rom-tests" dev.zaidan.qemu.RomImageInspectorTest
+      - name: Test ISO keyboard and touchscreen detection
+        run: |
+          mkdir -p "$RUNNER_TEMP/iso-tests"
+          javac -d "$RUNNER_TEMP/iso-tests" \
+            app/src/main/java/dev/zaidan/qemu/IsoInputDetector.java \
+            scripts/qemu-lab/IsoInputDetectorTest.java
+          java -cp "$RUNNER_TEMP/iso-tests" dev.zaidan.qemu.IsoInputDetectorTest
       - name: Build installable debug APK
         run: gradle --no-daemon --stacktrace assembleDebug
       - name: Check native library packaging

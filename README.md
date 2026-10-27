@@ -44,6 +44,29 @@ Antarmuka menggunakan Android native Java. Emulator QEMU dikompilasi untuk **hos
 
 </details>
 
+## ISO Input Detection: keyboard saat boot atau touchscreen?
+
+Saat memilih ISO, aplikasi memindai volume label ISO9660, file konfigurasi **GRUB/ISOLINUX/SYSLINUX**, menu instalasi, dan timeout boot. Hasilnya otomatis muncul pada kartu VM dan dialog pemeriksaan. Bisa juga buka menu **⋮ → Analyze ISO: keyboard or touch?**.
+
+**Deteksi dilakukan dari konten ISO, bukan hanya nama file.** Aplikasi membagi hasil menjadi tiga tahap:
+
+| Tahap | Hasil yang mungkin | Artinya |
+|---|---|---|
+| Bootloader | *Kemungkinan perlu tombol navigasi*, atau *tidak diketahui* | GRUB/ISOLINUX dapat menampilkan menu yang menggunakan tombol arah/Enter, termasuk bila ada autoboot timeout |
+| Installer | *YA, perlu keyboard* untuk installer Android-x86 berbasis teks, atau *belum dapat dipastikan* | Installer Android-x86 tidak otomatis mendukung input sentuh sebelum Android boot |
+| OS setelah boot | *Belum bisa dipastikan* | Kemampuan touchscreen bergantung pada driver dan perangkat virtual input QEMU; bahkan file ISO yang punya Live mode belum menjamin input touch berfungsi |
+
+**Contoh konkret:** ISO Android-x86 dapat memiliki opsi **Live CD** dan **Installation**. Live mode mungkin autoboot menuju UI Android yang dapat menerima pointer/tablet; mode Installation memakai dialog partisi, GRUB, dan pemilihan format yang membutuhkan input keyboard. Aplikasi tidak membuat klaim pasti 'tanpa keyboard' hanya karena mendeteksi boot timeout.
+
+Sumber penelitian:
+- [Android-x86 VirtualBox documentation](https://github.com/android-x86/android-x86.github.io/blob/master/documentation/virtualbox.html) menjelaskan pemilihan menu memakai tombol arah/Enter.
+- [Android-x86 Installation Howto](https://www.android-x86.org/installhowto.html) membahas installer berbasis teks dan menu partisi.
+- [Bliss OS QEMU docs](https://docs.blissos.org/installation/install-in-a-virtual-machine/install-in-qemu/) menjelaskan virtual input devices.
+- [Pengalaman Bliss OS tanpa keyboard (Reddit)](https://www.reddit.com/r/BlissOS/comments/p2h2lt) memperlihatkan Live mode dan instalasi memiliki kebutuhan input berbeda.
+- [Pengguna Android-x86 gagal menavigasi installer (Reddit)](https://www.reddit.com/r/Androidx86/comments/otou35) menunjukkan deteksi pra-boot tidak menjamin dukungan driver di installer.
+
+**Catatan:** ISO non-ISO9660, hybrid image dengan layout yang tak dapat dibaca, ISO Windows, atau menu boot dengan format lain akan mendapat status *belum diketahui*, bukan 'keyboard tidak diperlukan'. Viewer tetap touch-only; fitur ini adalah peringatan/deteksi, bukan penyedia driver touchscreen di guest.
+
 ## Custom ROM Android untuk VM (eksperimen)
 
 Menu **⋮ → Import Android ROM (ISO/disk)** bisa memilih image Android PC/VM dan memeriksa isinya. Ini belum menjadi installer ZIP recovery untuk ROM HP.

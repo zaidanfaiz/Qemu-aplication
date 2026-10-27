@@ -12,6 +12,8 @@ on:
       - 'app/src/main/java/dev/zaidan/qemu/MainActivity.java'
       - 'app/src/main/java/dev/zaidan/qemu/RomImageInspector.java'
       - 'scripts/qemu-lab/RomImageInspectorTest.java'
+      - 'app/src/main/java/dev/zaidan/qemu/IsoInputDetector.java'
+      - 'scripts/qemu-lab/IsoInputDetectorTest.java'
       - 'app/src/main/java/dev/zaidan/qemu/ViewerActivity.java'
       - 'app/src/main/AndroidManifest.xml'
       - 'app/build.gradle'
@@ -145,6 +147,13 @@ jobs:
             app/src/main/java/dev/zaidan/qemu/RomImageInspector.java \
             scripts/qemu-lab/RomImageInspectorTest.java
           java -cp "$RUNNER_TEMP/rom-tests" dev.zaidan.qemu.RomImageInspectorTest
+      - name: Test ISO keyboard and touchscreen detection
+        run: |
+          mkdir -p "$RUNNER_TEMP/iso-tests"
+          javac -d "$RUNNER_TEMP/iso-tests" \
+            app/src/main/java/dev/zaidan/qemu/IsoInputDetector.java \
+            scripts/qemu-lab/IsoInputDetectorTest.java
+          java -cp "$RUNNER_TEMP/iso-tests" dev.zaidan.qemu.IsoInputDetectorTest
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
