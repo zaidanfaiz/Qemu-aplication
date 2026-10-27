@@ -36,7 +36,7 @@ public class MainActivity extends Activity {
     private static final int FG = 0xFFEAF0F8, SECONDARY = 0xFFADB4C0;
     private SharedPreferences prefs;
     private LinearLayout root;
-    private TextView engineText, mediaText, machineText, feedback;
+    private TextView engineText, mediaText, machineText, inputStatusText, feedback;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -93,6 +93,9 @@ public class MainActivity extends Activity {
         card.addView(gap(9));
         mediaText = text("No boot image selected", 13, SECONDARY, false);
         card.addView(mediaText);
+        inputStatusText = text("ISO input: belum diperiksa", 12, SECONDARY, false);
+        inputStatusText.setPadding(0, dp(7), 0, 0);
+        card.addView(inputStatusText);
         card.addView(gap(12));
         TextView hint = text("Tap to boot in device preview  ·  ⋮ Configure", 12, 0xFF83AACF, false);
         card.addView(hint);
@@ -140,6 +143,19 @@ public class MainActivity extends Activity {
                         "Installer ISO · " + prefs.getString("isoName", "Not selected"));
             }
         }
+        if (inputStatusText != null) {
+            String mode = prefs.getString("bootMode", "iso");
+            inputStatusText.setVisibility("iso".equals(mode) ? View.VISIBLE : View.GONE);
+            if ("iso".equals(mode)) {
+                String isoName = prefs.getString("isoName", "");
+                String examinedName = prefs.getString("isoCheckedName", "");
+                String verdict = prefs.getString("isoInputShort", "");
+                inputStatusText.setText(isoName.isEmpty() ? "ISO input: belum dipilih" :
+                        !isoName.equals(examinedName) || verdict.isEmpty() ?
+                        "ISO input: belum dianalisis (pilih menu ⋮)" :
+                        "ISO input: " + verdict);
+            }
+        }
     }
 
     private void showMenu(View anchor) {
@@ -147,7 +163,8 @@ public class MainActivity extends Activity {
         String[] labels = {"Choose ISO", "Choose custom kernel", "Choose DTB",
                 "Architecture", "RAM", "CPU cores", "Disk capacity",
                 "Create virtual disk", "Open device preview", "Stop VM", "Native engine status",
-                "View QEMU log", "Import Android ROM (ISO/disk)", "Boot source"};
+                "View QEMU log", "Import Android ROM (ISO/disk)", "Boot source",
+                "Analyze ISO: keyboard or touch?"};
         for (int i = 0; i < labels.length; i++) menu.getMenu().add(0, i, i, labels[i]);
         menu.setOnMenuItemClickListener(item -> {
             switch (item.getItemId()) {
@@ -165,11 +182,50 @@ public class MainActivity extends Activity {
                 case 11: showLog(); break;
                 case 12: chooseFile(ROM); break;
                 case 13: chooseBootSource(); break;
+                case 14: showIsoInputReport(); break;
                 default: break;
             }
             return true;
         });
         menu.show();
+    }
+
+    private void showIsoInputReport() {
+        String path = prefs.getString("isoPath", "");
+        File iso = path.isEmpty() ? null : new File(path);
+        if (iso == null || !iso.isFile()) {
+            message("Import ISO terlebih dahulu untuk mendeteksi kebutuhan keyboard.");
+            return;
+        }
+        if (feedback != null) feedback.setText("Memeriksa menu boot dan installer ISO…");
+        new Thread(() -> {
+            IsoInputDetector.Report report;
+            try {
+                report = IsoInputDetector.detect(iso);
+            } catch (Exception exception) {
+                report = IsoInputDetector.unknown("Pemeriksaan gagal: " + exception.getMessage());
+            }
+            final IsoInputDetector.Report result = report;
+            prefs.edit()
+                .putString("isoCheckedName", prefs.getString("isoName", ""))
+                .putString("isoInputShort", result.summary())
+                .putString("isoInputDetail", result.detail())
+                .apply();
+            runOnUiThread(() -> {
+                if (isFinishing()) return;
+                refresh();
+                if (feedback != null)
+                    feedback.setText("Deteksi selesai; driver touch guest belum teruji.");
+                showIsoAnalysisDialog(result);
+            });
+        }, "iso-input-detector").start();
+    }
+
+    private void showIsoAnalysisDialog(IsoInputDetector.Report report) {
+        new AlertDialog.Builder(this)
+            .setTitle("ISO boot & touchscreen check")
+            .setMessage(report.detail())
+            .setPositiveButton("OK", null).show();
     }
 
     private void chooseArchitecture() {
@@ -334,6 +390,15 @@ public class MainActivity extends Activity {
                 String format = null;
                 if (romMode || requestCode == ISO || requestCode == ROM)
                     format = RomImageInspector.inspect(pending, name);
+                IsoInputDetector.Report isoReport = null;
+                if ("iso".equals(format)) {
+                    try {
+                        isoReport = IsoInputDetector.detect(pending);
+                    } catch (IOException error) {
+                        isoReport = IsoInputDetector.unknown(error.getMessage());
+                    }
+                }
+
 
                 String filename = romMode ?
                         ("qcow2".equals(format) ? "rom.qcow2" : "rom.raw") : kind + ".img";
@@ -355,17 +420,25 @@ public class MainActivity extends Activity {
                             .putString(kind + "Name", name);
                     if ("iso".equals(kind)) {
                         update.putString("bootMode", "iso").putString("arch", "x86_64");
+                        if (isoReport != null) {
+                            update.putString("isoCheckedName", name)
+                                    .putString("isoInputShort", isoReport.summary())
+                                    .putString("isoInputDetail", isoReport.detail());
+                        }
                     }
                 }
                 update.apply();
                 final String mode = romMode ? "ROM disk (bootable PC image)" :
                         (requestCode == ROM || requestCode == ISO) ? "ISO installer" : kind;
                 final long imported = totalBytes;
+                final IsoInputDetector.Report analyzedIso = isoReport;
                 runOnUiThread(() -> {
                     if (feedback != null)
                         feedback.setText(mode + " imported: " + name + " (" +
                                 (imported / (1024 * 1024)) + " MB)");
                     refresh();
+                    if (analyzedIso != null && !isFinishing())
+                        showIsoAnalysisDialog(analyzedIso);
                 });
             } catch (Exception ex) {
                 final String error = ex.getMessage() == null ? ex.toString() : ex.getMessage();
