@@ -75,6 +75,18 @@ public final class NativeVmService extends Service {
                 String iso = pref.getString("isoPath", "");
                 String kernel = pref.getString("kernelPath", "");
                 String dtb = pref.getString("dtbPath", "");
+                String bootMode = pref.getString("bootMode", "iso");
+                boolean useRom = "rom".equals(bootMode);
+                String romPath = pref.getString("romPath", "");
+                String romFormat = pref.getString("romFormat", "raw");
+                if (useRom) {
+                    if (!"x86_64".equals(arch))
+                        throw new java.io.IOException("Imported PC ROM disk requires x86_64 guest.");
+                    if (!("raw".equals(romFormat) || "qcow2".equals(romFormat)))
+                        throw new java.io.IOException("Unsupported ROM disk format: " + romFormat);
+                    if (romPath.isEmpty() || !new File(romPath).isFile())
+                        throw new java.io.IOException("Imported ROM disk not found. Re-import ROM in Machines.");
+                }
                 java.util.ArrayList<String> args = new java.util.ArrayList<>();
                 args.add(arch.equals("aarch64") ? "qemu-system-aarch64" : "qemu-system-x86_64");
                 args.add("-m"); args.add(String.valueOf(pref.getInt("ram", 1024)));
@@ -92,8 +104,17 @@ public final class NativeVmService extends Service {
                     args.add("-device"); args.add("virtio-multitouch-pci");
                 } else {
                     args.add("-machine"); args.add("pc,accel=tcg");
-                    args.add("-drive"); args.add("file=" + disk.getAbsolutePath() + ",format=raw,if=ide");
-                    if (!iso.isEmpty()) {
+                    if (useRom) {
+                        // Imported full-disk Android-x86 image is a SEPARATE
+                        // writable copy; never overwrite existing machine.img.
+                        args.add("-drive");
+                        args.add("file=" + romPath + ",format=" + romFormat + ",if=ide");
+                        args.add("-boot"); args.add("order=c");
+                    } else {
+                        args.add("-drive");
+                        args.add("file=" + disk.getAbsolutePath() + ",format=raw,if=ide");
+                    }
+                    if (!useRom && !iso.isEmpty()) {
                         args.add("-drive"); args.add("file=" + iso + ",media=cdrom,readonly=on");
                         args.add("-boot"); args.add("order=d");
                     }
