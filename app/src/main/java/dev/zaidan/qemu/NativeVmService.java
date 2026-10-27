@@ -110,6 +110,12 @@ public final class NativeVmService extends Service {
                         "Native QEMU exited rc=" + exit + "; see qemu.log");
             } catch (Throwable t) {
                 android.util.Log.e("QemuNativeService", "Native VM failed", t);
+                // JNI/Bionic loader errors must be visible without adb/logcat.
+                try (java.io.FileOutputStream output = new java.io.FileOutputStream(
+                        new File(getFilesDir(), "qemu.log"), true)) {
+                    String message = "\\n[NATIVE LAUNCH FAILURE] " + t.toString() + "\\n";
+                    output.write(message.getBytes(StandardCharsets.UTF_8));
+                } catch (Exception ignored) { }
             } finally {
                 currentProcess = null;
                 running = false;
