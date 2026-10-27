@@ -89,8 +89,8 @@ jobs:
           # Recursive manifest includes keymaps/ files; sha256sum * cannot handle dirs.
           (cd app/src/main/assets/qemu-roms &&
             find . -type f ! -name FIRMWARE-SHA256SUMS -print0 |
-              LC_ALL=C sort -z | xargs -0 sha256sum >
-                "$GITHUB_WORKSPACE/native-runtime-audit/FIRMWARE-SHA256SUMS")
+              LC_ALL=C sort -z |
+              xargs -0 sha256sum > "$GITHUB_WORKSPACE/native-runtime-audit/FIRMWARE-SHA256SUMS")
           # Small manifest lets Android skip repeatedly extracting large EDK2 assets.
           cp native-runtime-audit/FIRMWARE-SHA256SUMS \
             app/src/main/assets/qemu-roms/FIRMWARE-SHA256SUMS
