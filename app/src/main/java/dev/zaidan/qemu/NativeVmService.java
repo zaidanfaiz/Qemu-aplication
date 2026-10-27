@@ -86,6 +86,10 @@ public final class NativeVmService extends Service {
                     if (!dtb.isEmpty()) { args.add("-dtb"); args.add(dtb); }
                     args.add("-drive"); args.add("file=" + disk.getAbsolutePath() + ",format=raw,if=virtio");
                     args.add("-device"); args.add("ramfb");
+                    // QMP mtt events can reach virtio multitouch on guests
+                    // that actually have a virtio-input driver.
+                    args.add("-device"); args.add("virtio-tablet-pci");
+                    args.add("-device"); args.add("virtio-multitouch-pci");
                 } else {
                     args.add("-machine"); args.add("pc,accel=tcg");
                     args.add("-drive"); args.add("file=" + disk.getAbsolutePath() + ",format=raw,if=ide");
@@ -97,6 +101,9 @@ public final class NativeVmService extends Service {
                     // fingertip location correspond to the VNC framebuffer.
                     args.add("-usb");
                     args.add("-device"); args.add("usb-tablet");
+                    // Additional virtio touch interface for experimental
+                    // multi-finger QMP input. USB tablet stays as the default.
+                    args.add("-device"); args.add("virtio-multitouch-pci");
                     args.add("-vga"); args.add("std");
                 }
                 args.add("-nic"); args.add("none");
