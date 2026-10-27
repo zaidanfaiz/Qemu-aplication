@@ -40,6 +40,7 @@ public class ViewerActivity extends Activity {
     private static final int FG = 0xFFE7EAF0, MUTED = 0xFF9CA5B3;
     private LinearLayout body;
     private TextView emptyHeading, emptySubtitle;
+    private LinearLayout emptyLayer;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -86,6 +87,7 @@ public class ViewerActivity extends Activity {
         display.addView(screen, new FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout empty = new LinearLayout(this);
+        emptyLayer = empty;
         empty.setOrientation(LinearLayout.VERTICAL);
         empty.setGravity(Gravity.CENTER);
         empty.setPadding(dp(16), dp(8), dp(16), dp(8));
@@ -192,8 +194,7 @@ public class ViewerActivity extends Activity {
     private void connect() {
         if (client != null) client.close();
         synchronized (framebufferLock) { framebuffer = null; }
-        if (emptyHeading != null) emptyHeading.setVisibility(View.VISIBLE);
-        if (emptySubtitle != null) emptySubtitle.setVisibility(View.VISIBLE);
+        if (emptyLayer != null) emptyLayer.setVisibility(View.VISIBLE);
         screen.invalidate();
         status.setText("VNC • Connecting to 127.0.0.1:5901");
         RfbClient next = new RfbClient();
@@ -297,8 +298,7 @@ public class ViewerActivity extends Activity {
                 updateStatus("Connected · " + width + "×" + height, this);
                 runOnUiThread(() -> {
                     if (client == this && !isFinishing()) {
-                        emptyHeading.setVisibility(View.GONE);
-                        emptySubtitle.setVisibility(View.GONE);
+                        emptyLayer.setVisibility(View.GONE);
                     }
                 });
                 while (active && !socket.isClosed()) {
@@ -347,6 +347,7 @@ public class ViewerActivity extends Activity {
                     updateStatus("Offline · " + e.getClass().getSimpleName(), this);
                     runOnUiThread(() -> {
                         if (client == this && !isFinishing()) {
+                            emptyLayer.setVisibility(View.VISIBLE);
                             emptyHeading.setText("No VM display");
                             emptySubtitle.setText("QEMU VNC is not listening on 127.0.0.1:5901.\nOpen Machines → ⋮ → View QEMU log.");
                         }
