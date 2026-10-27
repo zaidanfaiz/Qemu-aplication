@@ -16,11 +16,11 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.PopupMenu;
+import android.widget.ScrollView;
+import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.EditText;
-import android.widget.ScrollView;
 import android.text.InputType;
 
 import java.io.File;
@@ -36,7 +36,7 @@ public class MainActivity extends Activity {
     private static final int FG = 0xFFEAF0F8, SECONDARY = 0xFFADB4C0;
     private SharedPreferences prefs;
     private LinearLayout root;
-    private TextView engineText, mediaText, machineText, inputStatusText, feedback;
+    private TextView engineText, mediaText, machineText, feedback, modePhone, modeComputer;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -63,169 +63,214 @@ public class MainActivity extends Activity {
 
     private void showHome() {
         root.removeAllViews();
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setVerticalScrollBarEnabled(false);
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
+        LinearLayout page = column();
+        page.setPadding(0, dp(4), 0, dp(25));
+        scroll.addView(page);
+
         LinearLayout header = row();
         header.setGravity(Gravity.CENTER_VERTICAL);
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.qemu_brand);
-        header.addView(logo, new LinearLayout.LayoutParams(dp(42), dp(42)));
-        TextView title = text("Qemu Application", 19, FG, true);
-        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, -2, 1);
-        tp.leftMargin = dp(12);
-        header.addView(title, tp);
-        TextView dots = text("⋮", 27, FG, false);
-        dots.setGravity(Gravity.CENTER);
-        header.addView(dots, new LinearLayout.LayoutParams(dp(48), dp(48)));
-        dots.setOnClickListener(v -> showMenu(dots));
-        root.addView(header);
-        root.addView(gap(26));
+        header.addView(logo, new LinearLayout.LayoutParams(dp(43), dp(43)));
+        LinearLayout brand = column();
+        LinearLayout.LayoutParams titleBox = new LinearLayout.LayoutParams(0, -2, 1);
+        titleBox.leftMargin = dp(12);
+        header.addView(brand, titleBox);
+        brand.addView(text("Qemu", 20, FG, true));
+        brand.addView(text("LOCAL VIRTUAL MACHINE", 10, SECONDARY, false));
+        TextView more = chip("⋯", false);
+        more.setTextSize(22);
+        header.addView(more, new LinearLayout.LayoutParams(dp(48), dp(43)));
+        more.setOnClickListener(v -> showMenu());
+        page.addView(header);
+        page.addView(gap(29));
 
-        TextView section = text("Machines", 25, FG, true);
-        root.addView(section);
-        root.addView(gap(15));
-
+        page.addView(text("Your machine", 25, FG, true));
+        page.addView(gap(12));
         LinearLayout card = column();
-        card.setPadding(dp(17), dp(19), dp(17), dp(17));
-        card.setBackground(shape(PANEL, LINE, 14));
-        TextView name = text("Local VM", 18, FG, true);
-        card.addView(name);
-        machineText = text("x86_64 · 1024 MB · 2 cores", 13, SECONDARY, false);
+        card.setPadding(dp(19), dp(18), dp(19), dp(19));
+        card.setBackground(shape(PANEL, LINE, 20));
+        page.addView(card);
+        LinearLayout vmHeading = row();
+        vmHeading.setGravity(Gravity.CENTER_VERTICAL);
+        TextView vmTitle = text("Local VM", 19, FG, true);
+        vmHeading.addView(vmTitle, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView config = chip("Edit", false);
+        vmHeading.addView(config, new LinearLayout.LayoutParams(dp(72), dp(38)));
+        config.setOnClickListener(v -> showHardwareMenu());
+        card.addView(vmHeading);
+        card.addView(gap(8));
+        machineText = text("", 13, SECONDARY, false);
         card.addView(machineText);
-        card.addView(gap(9));
-        mediaText = text("No boot image selected", 13, SECONDARY, false);
+        card.addView(gap(8));
+        mediaText = text("", 13, FG, false);
+        mediaText.setMaxLines(2);
+        mediaText.setEllipsize(android.text.TextUtils.TruncateAt.END);
         card.addView(mediaText);
-        inputStatusText = text("ISO input: belum diperiksa", 12, SECONDARY, false);
-        inputStatusText.setPadding(0, dp(7), 0, 0);
-        card.addView(inputStatusText);
-        card.addView(gap(12));
-        TextView hint = text("Tap to boot in device preview  ·  ⋮ Configure", 12, 0xFF83AACF, false);
-        card.addView(hint);
-        root.addView(card);
-        card.setOnClickListener(v -> launchFromCard());
+        card.addView(gap(23));
+        card.addView(text("CONTROL MODE", 11, SECONDARY, true));
+        card.addView(gap(10));
 
-        root.addView(gap(25));
-        root.addView(text("ENGINE", 11, 0xFF8993A2, true));
-        root.addView(gap(9));
-        engineText = text("", 13, SECONDARY, false);
-        root.addView(engineText);
-        root.addView(gap(17));
-        feedback = text("No Termux, shell, or external setup required by the app UI.", 12, SECONDARY, false);
-        root.addView(feedback);
-        root.addView(gap(17));
-        TextView open = text("Open device preview   ›", 14, FG, true);
-        open.setPadding(dp(2), dp(13), dp(2), dp(13));
-        root.addView(open);
-        open.setOnClickListener(v -> {
-            startActivity(new Intent(this, ViewerActivity.class));
-        });
+        LinearLayout modes = row();
+        modePhone = chip("◉  Phone · Touch", false);
+        modeComputer = chip("⌨  Computer", false);
+        LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(0, dp(48), 1);
+        p1.rightMargin = dp(9);
+        modes.addView(modePhone, p1);
+        modes.addView(modeComputer, new LinearLayout.LayoutParams(0, dp(48), 1));
+        card.addView(modes);
+        modePhone.setOnClickListener(v -> saveControlMode("phone"));
+        modeComputer.setOnClickListener(v -> saveControlMode("computer"));
+        card.addView(gap(17));
+        TextView start = chip("Start VM   →", true);
+        start.setTextSize(15);
+        card.addView(start, new LinearLayout.LayoutParams(-1, dp(50)));
+        start.setOnClickListener(v -> launchFromCard());
+
+        page.addView(gap(17));
+        LinearLayout actions = row();
+        TextView media = chip("＋  Media", false);
+        TextView settings = chip("⚙  Settings", false);
+        TextView logs = chip("≡  Logs", false);
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(0, dp(46), 1);
+        ap.rightMargin = dp(7);
+        actions.addView(media, ap);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(0, dp(46), 1);
+        sp.rightMargin = dp(7);
+        actions.addView(settings, sp);
+        actions.addView(logs, new LinearLayout.LayoutParams(0, dp(46), 1));
+        media.setOnClickListener(v -> showMediaMenu());
+        settings.setOnClickListener(v -> showHardwareMenu());
+        logs.setOnClickListener(v -> showLog());
+        page.addView(actions);
+
+        page.addView(gap(22));
+        engineText = text("", 12, SECONDARY, false);
+        page.addView(engineText);
+        page.addView(gap(6));
+        feedback = text("", 12, SECONDARY, false);
+        feedback.setMaxLines(3);
+        page.addView(feedback);
+        refresh();
+    }
+
+    private TextView chip(String label, boolean primary) {
+        TextView v = text(label, 12, primary ? 0xFF101319 : FG, true);
+        v.setGravity(Gravity.CENTER);
+        v.setPadding(dp(8), dp(8), dp(8), dp(8));
+        v.setBackground(shape(primary ? 0xFFB9CFF1 : 0xFF282E39,
+                primary ? 0xFFB9CFF1 : LINE, 13));
+        v.setClickable(true);
+        v.setFocusable(true);
+        return v;
+    }
+
+    private void saveControlMode(String mode) {
+        prefs.edit().putString("interactionMode", mode).apply();
         refresh();
     }
 
     private void refresh() {
         if (engineText == null) return;
-        boolean engine = NativeEngine.isAvailable(this, "x86_64") ||
-                         NativeEngine.isAvailable(this, "aarch64");
-        boolean running = NativeVmService.isRunning();
-        engineText.setText(running ? "● VM process active" : engine ?
-                "Native QEMU executable bundled (dependencies not verified)" :
-                "Native QEMU runtime not bundled yet");
-        engineText.setTextColor(running ? 0xFF9CD8AE : engine ? FG : 0xFFFFBA88);
-        if (machineText != null) {
-            String arch = prefs.getString("arch", "x86_64");
-            machineText.setText(arch + " · " + prefs.getInt("ram", 1024) + " MB · " +
-                    prefs.getInt("cores", 2) + " cores");
-        }
-        if (mediaText != null) {
-            String bootMode = prefs.getString("bootMode", "iso");
-            if ("rom".equals(bootMode)) {
-                mediaText.setText("ROM disk · " + prefs.getString("romName", "Not selected"));
-            } else {
-                mediaText.setText("installed".equals(bootMode) ? "Installed disk · machine.img (ISO ejected)" :
-                        "Installer ISO · " + prefs.getString("isoName", "Not selected"));
-            }
-        }
-        if (inputStatusText != null) {
-            String mode = prefs.getString("bootMode", "iso");
-            inputStatusText.setVisibility("iso".equals(mode) ? View.VISIBLE : View.GONE);
-            if ("iso".equals(mode)) {
-                String isoName = prefs.getString("isoName", "");
-                String examinedName = prefs.getString("isoCheckedName", "");
-                String verdict = prefs.getString("isoInputShort", "");
-                inputStatusText.setText(isoName.isEmpty() ? "ISO input: belum dipilih" :
-                        !isoName.equals(examinedName) || verdict.isEmpty() ?
-                        "ISO input: belum dianalisis (pilih menu ⋮)" :
-                        "ISO input: " + verdict);
-            }
-        }
+        boolean bundled = NativeEngine.isAvailable(this, "x86_64") ||
+                NativeEngine.isAvailable(this, "aarch64");
+        boolean active = NativeVmService.isRunning();
+        engineText.setText(active ? "● Virtual machine running" :
+                bundled ? "● QEMU runtime ready for testing" :
+                "○ QEMU runtime not bundled");
+        engineText.setTextColor(active ? 0xFF9EDBBB : SECONDARY);
+        String arch = prefs.getString("arch", "x86_64");
+        machineText.setText(arch + "   ·   " + prefs.getInt("ram", 1024) +
+                " MB RAM   ·   " + prefs.getInt("cores", 2) + " CPU");
+        String boot = prefs.getString("bootMode", "iso");
+        String media = "rom".equals(boot) ? prefs.getString("romName", "No ROM selected") :
+                "installed".equals(boot) ? "Installed disk · ISO ejected" :
+                prefs.getString("isoName", "No ISO selected");
+        mediaText.setText(("rom".equals(boot) ? "Disk: " : "Boot: ") + media);
+        boolean computer = "computer".equals(prefs.getString("interactionMode", "phone"));
+        styleMode(modePhone, !computer);
+        styleMode(modeComputer, computer);
     }
 
-    private void showMenu(View anchor) {
-        PopupMenu menu = new PopupMenu(this, anchor);
-        String[] labels = {"Choose ISO", "Choose custom kernel", "Choose DTB",
-                "Architecture", "RAM", "CPU cores", "Disk capacity",
-                "Create virtual disk", "Open device preview", "Stop VM", "Native engine status",
-                "View QEMU log", "Import Android ROM (ISO/disk)", "Boot source",
-                "Analyze ISO: keyboard or touch?"};
-        for (int i = 0; i < labels.length; i++) menu.getMenu().add(0, i, i, labels[i]);
-        menu.setOnMenuItemClickListener(item -> {
-            switch (item.getItemId()) {
-                case 0: chooseFile(ISO); break;
-                case 1: chooseFile(KERNEL); break;
-                case 2: chooseFile(DTB); break;
-                case 3: chooseArchitecture(); break;
-                case 4: numberDialog("RAM (MB)", "ram", 1024, 256, 8192); break;
-                case 5: numberDialog("CPU cores", "cores", 2, 1, 8); break;
-                case 6: numberDialog("Disk capacity (GB)", "diskGb", 8, 1, 128); break;
-                case 7: createDisk(); break;
-                case 8: startActivity(new Intent(this, ViewerActivity.class)); break;
-                case 9: NativeVmService.stop(this); break;
-                case 10: engineDialog(); break;
-                case 11: showLog(); break;
-                case 12: chooseFile(ROM); break;
-                case 13: chooseBootSource(); break;
-                case 14: showIsoInputReport(); break;
-                default: break;
-            }
-            return true;
-        });
-        menu.show();
+    private void styleMode(TextView view, boolean selected) {
+        view.setTextColor(selected ? 0xFF111419 : FG);
+        view.setBackground(shape(selected ? 0xFFB9CFF1 : 0xFF282E39,
+                selected ? 0xFFB9CFF1 : LINE, 13));
     }
 
-    private void showIsoInputReport() {
-        String path = prefs.getString("isoPath", "");
-        File iso = path.isEmpty() ? null : new File(path);
-        if (iso == null || !iso.isFile()) {
-            message("Import ISO terlebih dahulu untuk mendeteksi kebutuhan keyboard.");
-            return;
-        }
-        if (feedback != null) feedback.setText("Memeriksa menu boot dan installer ISO…");
-        new Thread(() -> {
-            IsoInputDetector.Report report;
-            try {
-                report = IsoInputDetector.detect(iso);
-            } catch (Exception exception) {
-                report = IsoInputDetector.unknown("Pemeriksaan gagal: " + exception.getMessage());
-            }
-            final IsoInputDetector.Report result = report;
-            prefs.edit()
-                .putString("isoCheckedName", prefs.getString("isoName", ""))
-                .putString("isoInputShort", result.summary())
-                .putString("isoInputDetail", result.detail())
-                .apply();
-            runOnUiThread(() -> {
-                if (isFinishing()) return;
-                refresh();
-                if (feedback != null)
-                    feedback.setText("Deteksi selesai; driver touch guest belum teruji.");
-                showIsoAnalysisDialog(result);
-            });
-        }, "iso-input-detector").start();
+    private void showMenu() {
+        String[] options = {"Media & boot", "Virtual machine settings",
+                "Display & input", "Diagnostics", "Stop VM"};
+        new AlertDialog.Builder(this).setTitle("Machine options")
+                .setItems(options, (dialog, selected) -> {
+                    switch (selected) {
+                        case 0: showMediaMenu(); break;
+                        case 1: showHardwareMenu(); break;
+                        case 2: showDisplayMenu(); break;
+                        case 3: showDiagnosticMenu(); break;
+                        case 4: NativeVmService.stop(this); break;
+                    }
+                }).show();
     }
 
-    private void showIsoAnalysisDialog(IsoInputDetector.Report report) {
-        new AlertDialog.Builder(this)
-            .setTitle("ISO boot & touchscreen check")
-            .setMessage(report.detail())
-            .setPositiveButton("OK", null).show();
+    private void showMediaMenu() {
+        String[] options = {"Choose installer ISO", "Import complete ROM disk",
+                "Choose boot source", "Create virtual disk"};
+        new AlertDialog.Builder(this).setTitle("Media & boot")
+                .setItems(options, (dialog, selected) -> {
+                    switch(selected) {
+                        case 0: chooseFile(ISO); break;
+                        case 1: chooseFile(ROM); break;
+                        case 2: chooseBootSource(); break;
+                        case 3: createDisk(); break;
+                    }
+                }).show();
+    }
+
+    private void showHardwareMenu() {
+        String[] options = {"Architecture", "RAM", "CPU cores", "Disk capacity",
+                "Advanced: custom kernel", "Advanced: device tree (DTB)"};
+        new AlertDialog.Builder(this).setTitle("Virtual machine settings")
+                .setItems(options, (dialog, selected) -> {
+                    switch(selected) {
+                        case 0: chooseArchitecture(); break;
+                        case 1: numberDialog("RAM (MB)", "ram", 1024, 256, 8192); break;
+                        case 2: numberDialog("CPU cores", "cores", 2, 1, 8); break;
+                        case 3: numberDialog("Disk capacity (GB)", "diskGb", 8, 1, 128); break;
+                        case 4: chooseFile(KERNEL); break;
+                        case 5: chooseFile(DTB); break;
+                    }
+                }).show();
+    }
+
+    private void showDisplayMenu() {
+        String[] modes = {"Phone · Touchscreen only", "Computer · Keyboard + mouse"};
+        boolean computer = "computer".equals(prefs.getString("interactionMode", "phone"));
+        new AlertDialog.Builder(this).setTitle("Display & input")
+                .setSingleChoiceItems(modes, computer ? 1 : 0, (dialog, index) -> {
+                    saveControlMode(index == 1 ? "computer" : "phone");
+                    dialog.dismiss();
+                }).setNeutralButton("Open display", (dialog, index) ->
+                    startActivity(new Intent(this, ViewerActivity.class)))
+                .setNegativeButton("Cancel", null).show();
+    }
+
+    private void showDiagnosticMenu() {
+        String[] options = {"QEMU runtime log", "Native engine status",
+                "Open display", "Stop VM"};
+        new AlertDialog.Builder(this).setTitle("Diagnostics")
+                .setItems(options, (dialog, selected) -> {
+                    switch (selected) {
+                        case 0: showLog(); break;
+                        case 1: engineDialog(); break;
+                        case 2: startActivity(new Intent(this, ViewerActivity.class)); break;
+                        case 3: NativeVmService.stop(this); break;
+                    }
+                }).show();
     }
 
     private void chooseArchitecture() {
@@ -390,15 +435,6 @@ public class MainActivity extends Activity {
                 String format = null;
                 if (romMode || requestCode == ISO || requestCode == ROM)
                     format = RomImageInspector.inspect(pending, name);
-                IsoInputDetector.Report isoReport = null;
-                if ("iso".equals(format)) {
-                    try {
-                        isoReport = IsoInputDetector.detect(pending);
-                    } catch (IOException error) {
-                        isoReport = IsoInputDetector.unknown(error.getMessage());
-                    }
-                }
-
 
                 String filename = romMode ?
                         ("qcow2".equals(format) ? "rom.qcow2" : "rom.raw") : kind + ".img";
@@ -420,25 +456,17 @@ public class MainActivity extends Activity {
                             .putString(kind + "Name", name);
                     if ("iso".equals(kind)) {
                         update.putString("bootMode", "iso").putString("arch", "x86_64");
-                        if (isoReport != null) {
-                            update.putString("isoCheckedName", name)
-                                    .putString("isoInputShort", isoReport.summary())
-                                    .putString("isoInputDetail", isoReport.detail());
-                        }
                     }
                 }
                 update.apply();
                 final String mode = romMode ? "ROM disk (bootable PC image)" :
                         (requestCode == ROM || requestCode == ISO) ? "ISO installer" : kind;
                 final long imported = totalBytes;
-                final IsoInputDetector.Report analyzedIso = isoReport;
                 runOnUiThread(() -> {
                     if (feedback != null)
                         feedback.setText(mode + " imported: " + name + " (" +
                                 (imported / (1024 * 1024)) + " MB)");
                     refresh();
-                    if (analyzedIso != null && !isFinishing())
-                        showIsoAnalysisDialog(analyzedIso);
                 });
             } catch (Exception ex) {
                 final String error = ex.getMessage() == null ? ex.toString() : ex.getMessage();
