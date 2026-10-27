@@ -44,6 +44,19 @@ Antarmuka menggunakan Android native Java. Emulator QEMU dikompilasi untuk **hos
 
 </details>
 
+## Tampilan simulator perangkat
+
+Viewer tidak lagi memaksa posisi lanskap atau menampilkan bar tombol terminal. Versi UI terbaru menampilkan **frame perangkat bergaya iPhone dalam posisi potret**, dengan display VNC di dalamnya dan rasio asli framebuffer tetap terjaga.
+
+- Bar atas: kembali ke daftar VM, status koneksi, dan menu **⋯**.
+- Mode default: **Device frame**, dengan bezel, area kamera, dan indikator gestur sebagai elemen visual.
+- **⋯ → Screen only** menyembunyikan bingkai untuk menguji gambar guest dalam area maksimal.
+- **⋯ → Keyboard & send text** membuka keyboard tambahan seperlunya; tidak memenuhi ruang layar secara permanen.
+- **⋯ → Reconnect display** mengulang koneksi localhost VNC tanpa menutup aplikasi.
+- Sentuhan pada framebuffer yang terlihat dikirim sebagai **pointer VNC tunggal**; huruf / keyboard dikirim sebagai tombol VNC. *Bukan* implementasi multitouch iOS.
+
+**Penting:** frame perangkat hanyalah tampilan. Ini tidak menjadikan guest QEMU otomatis menjalankan iOS, dan tidak mengganti perangkat keras/bootloader yang dibutuhkan sistem operasi tersebut.
+
 ## Cara kerja
 
 ```text
