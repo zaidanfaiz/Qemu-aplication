@@ -58,19 +58,32 @@ jobs:
           tar -xzf input-runtime/qemu-android-arm64-minimal-v11.1.2.tar.gz \
             -C input-runtime
           ROMS=input-runtime/qemu-android-minimal/extracted/data/data/com.termux/files/usr/share/qemu
-          test -f "$ROMS/bios.bin"
-          test -f "$ROMS/vgabios-stdvga.bin"
+          test -s "$ROMS/bios-256k.bin"
+          test -s "$ROMS/bios.bin"
+          test -s "$ROMS/vgabios-stdvga.bin"
           test -f "$ROMS/edk2-aarch64-code.fd"
           mkdir -p app/src/main/assets/qemu-roms native-runtime-audit
-          for firmware in bios.bin vgabios.bin vgabios-stdvga.bin vgabios-ramfb.bin \
-                          kvmvapic.bin efi-virtio.rom pxe-virtio.rom \
+          # Copy all ROMs needed by basic PC/virt machines, not just legacy bios.bin.
+          # QEMU 11.1.2's pc machine defaults to bios-256k.bin (SeaBIOS).
+          for firmware in bios-256k.bin bios.bin bios-microvm.bin \
+                          vgabios.bin vgabios-stdvga.bin vgabios-ramfb.bin \
+                          vgabios-cirrus.bin vgabios-virtio.bin vgabios-bochs-display.bin \
+                          kvmvapic.bin pvh.bin linuxboot_dma.bin multiboot_dma.bin \
+                          efi-virtio.rom pxe-virtio.rom \
                           edk2-aarch64-code.fd edk2-x86_64-code.fd edk2-licenses.txt; do
             if test -f "$ROMS/$firmware"; then
               cp "$ROMS/$firmware" "app/src/main/assets/qemu-roms/$firmware"
             fi
           done
+          # Do not publish an APK that cannot satisfy the default x86 PC firmware.
+          test -s app/src/main/assets/qemu-roms/bios-256k.bin
+          test "$(stat -c %s app/src/main/assets/qemu-roms/bios-256k.bin)" -eq 262144
+          test -s app/src/main/assets/qemu-roms/vgabios-stdvga.bin
           (cd app/src/main/assets/qemu-roms && sha256sum * \
             > "$GITHUB_WORKSPACE/native-runtime-audit/FIRMWARE-SHA256SUMS")
+          # Small manifest lets Android skip repeatedly extracting large EDK2 assets.
+          cp native-runtime-audit/FIRMWARE-SHA256SUMS \
+            app/src/main/assets/qemu-roms/FIRMWARE-SHA256SUMS
       - name: Stage upstream Android PIE executables
         run: |
           python3 scripts/qemu-lab/stage_qemu_executables.py \
@@ -123,6 +136,8 @@ jobs:
           APK=app/build/outputs/apk/debug/app-debug.apk
           unzip -l "$APK" | grep -F 'lib/arm64-v8a/libqemu-system-aarch64.so'
           unzip -l "$APK" | grep -F 'lib/arm64-v8a/libqemu-system-x86_64.so'
+          unzip -l "$APK" | grep -F 'assets/qemu-roms/bios-256k.bin'
+          unzip -l "$APK" | grep -F 'assets/qemu-roms/vgabios-stdvga.bin'
           unzip -l "$APK" | grep -F 'assets/qemu-roms/bios.bin'
           unzip -l "$APK" | grep -F 'assets/qemu-roms/edk2-aarch64-code.fd'
           cat native-runtime-audit/CLOSURE_AUDIT.json
