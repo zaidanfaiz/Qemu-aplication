@@ -12,7 +12,6 @@ import gzip
 import hashlib
 import io
 import json
-import lzma
 import os
 from pathlib import Path
 import re
@@ -36,7 +35,7 @@ qbin = src / "extracted/data/data/com.termux/files/usr/bin"
 MIRROR = "https://packages.termux.dev/apt/termux-main/"
 ALT_MIRROR = "https://termux.librehat.com/apt/termux-main/"
 CONTENTS = "dists/stable/Contents-aarch64.gz"
-PACKAGES = "dists/stable/main/binary-aarch64/Packages.xz"
+PACKAGES = "dists/stable/main/binary-aarch64/Packages.gz"
 SYSTEM = {"libc.so", "libm.so", "libdl.so", "liblog.so", "libandroid.so"}
 MAX_DOWNLOAD = 70 * 1024 * 1024
 MAX_PACKAGES = 55
@@ -120,7 +119,7 @@ def source_library(soname):
     return match
 
 print("Retrieving Termux aarch64 repository package index...")
-package_records = parse_packages(lzma.decompress(fetch(PACKAGES)))
+package_records = parse_packages(gzip.decompress(fetch(PACKAGES)).decode("utf-8"))
 contents = parse_contents(gzip.decompress(fetch(CONTENTS, 90 * 1024 * 1024)).decode("utf-8"))
 print(f"Index contains {len(package_records)} packages / {len(contents)} library entries")
 installed = {}
