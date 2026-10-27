@@ -19,7 +19,14 @@ features_to_disable = [
     "parallels", "qed", "slirp", "spice", "libusb", "usb-redir",
     "kvm",
 ]
-modified = original
+# Version 2: remove optional host audio, debug unwind and zstd linkage.
+# QEMU's Termux recipe forces --audio-drv-list=pa, which must not conflict
+# with --disable-pa. QEMU keeps the generic no-audio backend.
+features_to_disable.extend(["alsa", "pa", "jack", "libdw", "zstd"])
+forced_audio = "\t\t--audio-drv-list=pa \\\n"
+if forced_audio not in original:
+    sys.exit("Termux forced-audio line changed; refusing non-reproducible build")
+modified = original.replace(forced_audio, "")
 for feature in features_to_disable:
     previous = f"--enable-{feature}"
     if previous not in modified:
