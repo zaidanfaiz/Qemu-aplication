@@ -44,6 +44,38 @@ Antarmuka menggunakan Android native Java. Emulator QEMU dikompilasi untuk **hos
 
 </details>
 
+## Custom ROM Android untuk VM (eksperimen)
+
+Menu **⋮ → Import Android ROM (ISO/disk)** bisa memilih image Android PC/VM dan memeriksa isinya. Ini belum menjadi installer ZIP recovery untuk ROM HP.
+
+| Jenis file | Fitur sekarang |
+| --- | --- |
+| Android-x86 atau distro Android PC `.iso` | Installer/live ISO, menggunakan `machine.img` terpisah |
+| Full disk `.img` atau `.raw` dengan tabel partisi MBR/GPT | Diimpor sebagai `rom.raw`, boot sebagai disk utama |
+| Full disk `.qcow2` tanpa backing file eksternal | Diimpor sebagai `rom.qcow2`, boot sebagai disk utama, eksperimental |
+| Recovery/OTA `.zip`, `boot.img`, `system.img`, GSI / sparse Android | **Ditolak**: bukan satu disk PC bootable yang dapat langsung digunakan QEMU |
+
+### Percobaan 1: installer Android-x86 ISO
+
+1. Siapkan ISO Android-x86 untuk **PC x86_64**, bukan firmware HP. Lihat [panduan instalasi Android-x86](https://www.android-x86.org/installhowto.html).
+2. Tekan **⋮ → Import Android ROM (ISO/disk)** atau **Choose ISO**, kemudian pilih file `.iso`.
+3. Atur **Boot source → Install from ISO**, pilih x86_64, lalu **Create virtual disk** untuk membuat `machine.img` (cukup satu kali).
+4. Jalankan VM. ISO bisa digunakan untuk *live boot*, atau pilih menu instalasi di dalam guest.
+5. Setelah berhasil menginstal OS ke disk, matikan VM dan pilih **Boot source → Boot installed VM disk (eject ISO)**. Mode ini melepas ISO dan boot dari `machine.img`.
+
+**Keterbatasan:** installer Android-x86 biasanya berupa menu teks/bootloader yang membutuhkan tombol arah/Enter. Viewer ini sengaja **touch-only**; beberapa installer tidak bisa dioperasikan dengan sentuhan saja. Fitur import dan boot belum membuktikan proses instalasi bisa dituntaskan tanpa keyboard.
+
+### Percobaan 2: image ROM disk yang sudah terpasang
+
+1. Pilih **⋮ → Import Android ROM (ISO/disk)**, lalu file `.img`, `.raw`, atau `.qcow2` berupa *full VM disk image*.
+2. Aplikasi menyalin file ke penyimpanan privat, memeriksa signature MBR/QCOW2, dan memilih boot x86_64 otomatis.
+3. Jalankan kartu VM. File asli di penyimpanan HP tetap utuh, sedangkan salinan ROM VM bisa ditulis oleh guest.
+4. Disk `machine.img` lama tidak ditimpa. Untuk kembali ke installer pilih **⋮ → Boot source**.
+
+ZIP custom ROM untuk Poco, Samsung, iPhone, atau HP tertentu butuh bootloader, recovery, partisi, dan driver perangkat yang cocok. Tidak bisa langsung dipasang ke VM PC hanya dengan import ZIP. **Firmware IPSW iOS belum didukung**; tampilan bingkai iPhone tidak otomatis membuat QEMU menjalankan iOS.
+
+**Peringatan:** importer hanya memastikan *format* disk yang masuk akal, bukan memverifikasi sistem operasi atau keberhasilan boot. Backup salinan ROM VM sebelum menggantinya. Build GitHub Actions juga belum membuktikan boot Android/iOS di perangkat fisik.
+
 ## Kontrol touchscreen tanpa keyboard virtual
 
 Simulator dibuat khusus untuk **interaksi layar sentuh HP**, bukan remote desktop. Tidak ada lagi panel keyboard, tombol Esc/Tab/Enter, tombol panah, atau menu `Keyboard & send text` pada tampilan VM.
