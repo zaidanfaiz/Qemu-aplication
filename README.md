@@ -65,7 +65,7 @@ Qemu Application (Android APK)
 
 ## APK kandidat native
 
-Workflow **[Native Dependency Integration Lab](https://github.com/zaidanfaiz/Qemu-aplication/actions/runs/40458801474)** sudah berhasil menghasilkan satu APK yang memuat emulator QEMU Android ARM64 dan dependensinya. Audit artifact terkonfirmasi:
+Workflow **[Native Dependency Integration Lab](https://github.com/zaidanfaiz/Qemu-aplication/actions/runs/40474093675)** sudah berhasil menghasilkan satu APK yang memuat emulator QEMU Android ARM64 dan dependensinya. Audit artifact terkonfirmasi:
 
 - **2** executable QEMU untuk guest x86_64 dan AArch64.
 - **11** library non-sistem yang ditemukan secara rekursif dari **8** paket ARM64, dengan verifikasi checksum paket.
@@ -73,7 +73,7 @@ Workflow **[Native Dependency Integration Lab](https://github.com/zaidanfaiz/Qem
 - Penyesuaian nama library, `DT_NEEDED`, dan `RUNPATH=$ORIGIN` berhasil melewati audit di runner.
 - Ukuran APK sekitar **16,7 MB**. Struktur APK serta CRC sudah diperiksa.
 
-**Unduh melalui GitHub:** [buka run sukses](https://github.com/zaidanfaiz/Qemu-aplication/actions/runs/40458801474), lalu bagian **Artifacts** → `QEMU-ANDROID-NATIVE-DEPENDENCY-CANDIDATE-UNTESTED`. Ekstrak ZIP dan instal `app-debug.apk`.
+**Unduh melalui GitHub:** [buka build perbaikan SeaBIOS](https://github.com/zaidanfaiz/Qemu-aplication/actions/runs/40474093675), lalu bagian **Artifacts** → `QEMU-ANDROID-NATIVE-DEPENDENCY-CANDIDATE-UNTESTED`. Ekstrak ZIP dan instal `app-debug.apk`.
 
 **Perlu diperhatikan:** dependency closure di CI bukan bukti Android linker akan menerima seluruh library saat runtime. QEMU mungkin masih gagal start akibat linker namespace, path yang tertanam, opsi QEMU, maupun firmware. Gunakan untuk pengujian, bukan untuk data penting.
 
@@ -90,7 +90,7 @@ Penyebabnya adalah daftar firmware dalam workflow APK yang hanya memasukkan `bio
 
 **Perbaikan sudah masuk ke source:** pipeline sekarang mewajibkan `bios-256k.bin` berukuran tepat **262144 byte**, memaketkan beberapa VGA ROM tambahan, dan memastikan keberadaannya dalam APK. Aplikasi juga memeriksa file BIOS/VGA sebelum menjalankan guest x86_64 dan menyimpan firmware hasil ekstraksi sehingga ROM besar tidak disalin ulang pada setiap boot.
 
-**Penting:** hanya APK hasil **Native Dependency Integration Lab yang lebih baru dari commit perbaikan** yang memiliki BIOS tersebut. APK sebelumnya masih akan gagal dengan pesan yang sama. Masalah BIOS teridentifikasi dan ditangani di kode; keberhasilan boot sistem operasi masih perlu diuji di perangkat.
+**Penting:** hanya APK hasil **Native Dependency Integration Lab yang lebih baru dari commit perbaikan** yang memiliki BIOS tersebut. APK sebelumnya masih akan gagal dengan pesan yang sama. Perbaikan telah **lulus GitHub Actions run 40474093675**. Isi APK hasil build telah diperiksa dan memuat `bios-256k.bin` (262144 byte), `vgabios-stdvga.bin` (39424 byte), dan manifest firmware. **Boot sistem operasi tetap perlu diuji pada HP**; error BIOS berikutnya atau error konfigurasi lain masih mungkin.
 
 ## Pengujian aplikasi
 
