@@ -1,6 +1,17 @@
 package dev.zaidan.qemu;
 
 import android.app.Activity;
+import android.content.pm.ActivityInfo;
+import android.content.SharedPreferences;
+import android.content.Context;
+import android.view.inputmethod.InputMethodManager;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputConnectionWrapper;
+import android.text.InputType;
+import android.view.KeyEvent;
+import android.widget.EditText;
+import android.widget.HorizontalScrollView;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -57,12 +68,25 @@ public class ViewerActivity extends Activity {
     private View island;
     private View homeIndicator;
     private boolean deviceFrame = true;
+    private boolean computerMode;
+    private boolean ctrlModifier;
+    private boolean altModifier;
+    private LinearLayout computerKeyboard;
+    private EditText guestInput;
+    private TextView ctrlButton, altButton;
     private boolean nativeTouchMode;
     private QmpMultiTouch qmpTouch;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        deviceFrame = getPreferences(MODE_PRIVATE).getBoolean("deviceFrame", true);
+        SharedPreferences vmSettings = getSharedPreferences("native_vm", MODE_PRIVATE);
+        computerMode = "computer".equals(vmSettings.getString("interactionMode", "phone"));
+        deviceFrame = !computerMode && getPreferences(MODE_PRIVATE).getBoolean("deviceFrame", true);
+        setRequestedOrientation(computerMode ?
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE :
+                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        getWindow().setSoftInputMode(
+                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         nativeTouchMode = getPreferences(MODE_PRIVATE).getBoolean("nativeGuestTouch", false);
         qmpTouch = new QmpMultiTouch();
         if (nativeTouchMode) qmpTouch.connect();
@@ -95,7 +119,7 @@ public class ViewerActivity extends Activity {
         LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(0, -2, 1);
         headingParams.leftMargin = dp(10);
         toolbar.addView(headings, headingParams);
-        headings.addView(text("Phone display", 17, FOREGROUND, true));
+        headings.addView(text(computerMode ? "Computer display" : "Phone display", 17, FOREGROUND, true));
         status = text("Connecting to local VM…", 11, SECONDARY, false);
         status.setMaxLines(1);
         status.setEllipsize(TextUtils.TruncateAt.END);
@@ -164,7 +188,11 @@ public class ViewerActivity extends Activity {
         phone.addView(homeIndicator, homeParams);
         homeIndicator.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
 
-        footer = text("LOCAL DISPLAY  ·  SINGLE-POINTER INPUT", 10, SECONDARY, false);
+        computerKeyboard = buildComputerKeyboard();
+        page.addView(computerKeyboard, new LinearLayout.LayoutParams(-1, -2));
+        computerKeyboard.setVisibility(computerMode ? View.VISIBLE : View.GONE);
+
+        footer = text("LOCAL DISPLAY  ·  TOUCH INPUT", 10, SECONDARY, false);
         footer.setGravity(Gravity.CENTER);
         footer.setPadding(dp(12), 0, dp(12), dp(5));
         page.addView(footer, new LinearLayout.LayoutParams(-1, dp(33)));
@@ -204,10 +232,13 @@ public class ViewerActivity extends Activity {
     private void openOptions(View anchor) {
         PopupMenu menu = new PopupMenu(this, anchor);
         menu.getMenu().add(0, 1, 0, "Reconnect display");
-        menu.getMenu().add(0, 3, 1, deviceFrame ? "Screen only" : "Show device frame");
+        if (!computerMode) menu.getMenu().add(0, 3, 1, deviceFrame ? "Screen only" : "Show device frame");
         menu.getMenu().add(0, 5, 2, nativeTouchMode ?
             "Standard touch" : "Multitouch (experimental)");
-        menu.getMenu().add(0, 4, 3, "Back to machines");
+        menu.getMenu().add(0, 6, 3, computerMode ? "Switch to Phone / Touch" :
+                "Switch to Computer / Keyboard");
+        if (computerMode) menu.getMenu().add(0, 7, 4, "Show Android keyboard");
+        menu.getMenu().add(0, 4, 5, "Back to machines");
         menu.setOnMenuItemClickListener(item -> {
             switch(item.getItemId()) {
                 case 1: connect(); return true;
@@ -229,11 +260,204 @@ public class ViewerActivity extends Activity {
                     }
                     applyDeviceStyle();
                     return true;
+                case 6:
+                    getSharedPreferences("native_vm", MODE_PRIVATE).edit()
+                            .putString("interactionMode", computerMode ? "phone" : "computer").apply();
+                    recreate();
+                    return true;
+                case 7: showAndroidKeyboard(); return true;
                 case 4: finish(); return true;
                 default: return false;
             }
         });
         menu.show();
+    }
+
+    /**
+     * Desktop mode: compact physical-PC keys plus the user's real Android IME.
+     * All input sends RFB key events; the row never appears in Phone mode.
+     */
+    private LinearLayout buildComputerKeyboard() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setBackgroundColor(SURFACE);
+        bar.setOrientation(LinearLayout.VERTICAL);
+        bar.setPadding(dp(8), dp(6), dp(8), dp(6));
+        HorizontalScrollView scroller = new HorizontalScrollView(this);
+        scroller.setHorizontalScrollBarEnabled(false);
+        LinearLayout keys = new LinearLayout(this);
+        keys.setGravity(Gravity.CENTER_VERTICAL);
+
+        String[] labels = {"Esc", "Tab", "Ctrl", "Alt", "←", "↑", "↓", "→",
+                "Enter", "Backspace", "Del", "Home", "End"};
+        int[] values = {0xff1b,0xff09,0,0,0xff51,0xff52,0xff54,0xff53,
+                0xff0d,0xff08,0xffff,0xff50,0xff57};
+        for (int i = 0; i < labels.length; i++) {
+            final int sym = values[i];
+            final String keyName = labels[i];
+            TextView key = smallPcKey(keyName);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    keyName.equals("Backspace") ? dp(90) : dp(60), dp(38));
+            lp.rightMargin = dp(5);
+            keys.addView(key, lp);
+            if (keyName.equals("Ctrl")) ctrlButton = key;
+            if (keyName.equals("Alt")) altButton = key;
+            key.setOnClickListener(view -> {
+                if ("Ctrl".equals(keyName)) {
+                    ctrlModifier = !ctrlModifier;
+                    setModifierStyle(ctrlButton, ctrlModifier);
+                } else if ("Alt".equals(keyName)) {
+                    altModifier = !altModifier;
+                    setModifierStyle(altButton, altModifier);
+                } else {
+                    sendGuestKey(sym);
+                }
+            });
+        }
+        scroller.addView(keys);
+        bar.addView(scroller, new LinearLayout.LayoutParams(-1, dp(43)));
+
+        LinearLayout inputRow = new LinearLayout(this);
+        inputRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(-1, dp(48));
+        ip.topMargin = dp(5);
+        bar.addView(inputRow, ip);
+
+        guestInput = new GuestEditText();
+        guestInput.setTextColor(FOREGROUND);
+        guestInput.setHintTextColor(SECONDARY);
+        guestInput.setTextSize(14);
+        guestInput.setSingleLine(true);
+        guestInput.setHint("Type on your Android keyboard…");
+        guestInput.setInputType(InputType.TYPE_CLASS_TEXT |
+                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        guestInput.setImeOptions(EditorInfo.IME_ACTION_DONE |
+                EditorInfo.IME_FLAG_NO_EXTRACT_UI);
+        guestInput.setBackground(round(0xFF252932, 11, 0, 0));
+        guestInput.setPadding(dp(12), 0, dp(12), 0);
+        guestInput.setOnEditorActionListener((view, actionId, event) -> {
+            if (event != null && event.getAction() != KeyEvent.ACTION_DOWN) return true;
+            sendGuestKey(0xff0d);
+            return true;
+        });
+        guestInput.setOnKeyListener((view, code, event) -> {
+            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+            int sym = keysymForEvent(event);
+            if (sym == 0) return false;
+            sendGuestKey(sym);
+            return true;
+        });
+        inputRow.addView(guestInput, new LinearLayout.LayoutParams(0, dp(44), 1));
+
+        TextView openIme = smallPcKey("⌨ Open");
+        LinearLayout.LayoutParams openLp = new LinearLayout.LayoutParams(dp(82), dp(44));
+        openLp.leftMargin = dp(8);
+        inputRow.addView(openIme, openLp);
+        openIme.setOnClickListener(view -> showAndroidKeyboard());
+        return bar;
+    }
+
+    private TextView smallPcKey(String label) {
+        TextView view = text(label, 12, FOREGROUND, true);
+        view.setGravity(Gravity.CENTER);
+        view.setBackground(round(0xFF30343E, 9, 0, 0));
+        view.setFocusable(true);
+        view.setClickable(true);
+        return view;
+    }
+
+    private void setModifierStyle(TextView view, boolean active) {
+        view.setTextColor(active ? 0xFF0E1116 : FOREGROUND);
+        view.setBackground(round(active ? 0xFFBACDED : 0xFF30343E, 9, 0, 0));
+    }
+
+    private void showAndroidKeyboard() {
+        if (!computerMode || guestInput == null) return;
+        guestInput.requestFocus();
+        InputMethodManager imm = (InputMethodManager)
+                getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) imm.showSoftInput(guestInput, InputMethodManager.SHOW_IMPLICIT);
+    }
+
+    private int keysymForEvent(KeyEvent event) {
+        switch (event.getKeyCode()) {
+            case KeyEvent.KEYCODE_ENTER: return 0xff0d;
+            case KeyEvent.KEYCODE_ESCAPE: return 0xff1b;
+            case KeyEvent.KEYCODE_TAB: return 0xff09;
+            case KeyEvent.KEYCODE_DEL: return 0xff08;
+            case KeyEvent.KEYCODE_FORWARD_DEL: return 0xffff;
+            case KeyEvent.KEYCODE_DPAD_LEFT: return 0xff51;
+            case KeyEvent.KEYCODE_DPAD_UP: return 0xff52;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return 0xff53;
+            case KeyEvent.KEYCODE_DPAD_DOWN: return 0xff54;
+            case KeyEvent.KEYCODE_MOVE_HOME: return 0xff50;
+            case KeyEvent.KEYCODE_MOVE_END: return 0xff57;
+            case KeyEvent.KEYCODE_PAGE_UP: return 0xff55;
+            case KeyEvent.KEYCODE_PAGE_DOWN: return 0xff56;
+            default:
+                int unicode = event.getUnicodeChar();
+                return unicode > 0 ? unicodeKeysym(unicode) : 0;
+        }
+    }
+
+    private int unicodeKeysym(int unicode) {
+        if (unicode == '\n') return 0xff0d;
+        if (unicode == '\t') return 0xff09;
+        if (unicode == '\b') return 0xff08;
+        if (unicode < 0x100) return unicode;
+        return unicode <= 0x10ffff ? 0x01000000 | unicode : 0;
+    }
+
+    private void sendGuestText(CharSequence text) {
+        RfbClient active = client;
+        if (active == null || text == null) return;
+        String value = text.toString();
+        for (int i = 0; i < value.length();) {
+            int unicode = value.codePointAt(i);
+            i += Character.charCount(unicode);
+            int sym = unicodeKeysym(unicode);
+            if (sym != 0) active.sendChord(sym, ctrlModifier, altModifier);
+        }
+    }
+
+    private void sendGuestKey(int sym) {
+        RfbClient active = client;
+        if (active != null) active.sendChord(sym, ctrlModifier, altModifier);
+    }
+
+    /**
+     * InputConnection receives Android IME commits, even on Gboard keyboards
+     * that never emit KeyEvents. Never depend on EditText's visible text as
+     * a source of truth for guest keyboard events.
+     */
+    private class GuestEditText extends EditText {
+        GuestEditText() { super(ViewerActivity.this); }
+
+        @Override public InputConnection onCreateInputConnection(EditorInfo attrs) {
+            InputConnection original = super.onCreateInputConnection(attrs);
+            if (original == null) return null;
+            return new InputConnectionWrapper(original, false) {
+                @Override public boolean commitText(CharSequence text, int cursor) {
+                    if (text != null && text.length() != 0) sendGuestText(text);
+                    return super.commitText(text, cursor);
+                }
+                @Override public boolean deleteSurroundingText(int before, int after) {
+                    // Some soft keyboards send deletion even when EditText is empty.
+                    for (int i = 0; i < Math.min(before, 20); i++) sendGuestKey(0xff08);
+                    for (int i = 0; i < Math.min(after, 20); i++) sendGuestKey(0xffff);
+                    return super.deleteSurroundingText(before, after);
+                }
+                @Override public boolean sendKeyEvent(KeyEvent event) {
+                    if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                        int sym = keysymForEvent(event);
+                        if (sym != 0) {
+                            sendGuestKey(sym);
+                            return true;
+                        }
+                    }
+                    return super.sendKeyEvent(event);
+                }
+            };
+        }
     }
 
     private GradientDrawable round(int fill, int radius, int strokeColor, int strokeDp) {
@@ -667,6 +891,28 @@ public class ViewerActivity extends Activity {
                 out.writeShort(0); out.writeShort(0);
                 out.writeShort(width); out.writeShort(height); out.flush();
             }
+        }
+
+        void sendChord(int keysym, boolean ctrl, boolean alt) {
+            synchronized (outputLock) {
+                if (out == null || !active || keysym == 0) return;
+                try {
+                    if (ctrl) writeKeyEvent(0xffe3, true);
+                    if (alt) writeKeyEvent(0xffe9, true);
+                    writeKeyEvent(keysym, true);
+                    writeKeyEvent(keysym, false);
+                    if (alt) writeKeyEvent(0xffe9, false);
+                    if (ctrl) writeKeyEvent(0xffe3, false);
+                    out.flush();
+                } catch (IOException e) { close(); }
+            }
+        }
+
+        private void writeKeyEvent(int sym, boolean down) throws IOException {
+            out.writeByte(4);
+            out.writeByte(down ? 1 : 0);
+            out.writeShort(0);
+            out.writeInt(sym);
         }
 
         void wheel(int x, int y, int mask) {
