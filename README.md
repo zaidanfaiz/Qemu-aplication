@@ -2,95 +2,90 @@
   <img src="app/src/main/res/drawable-nodpi/qemu_brand.webp" alt="Qemu Application" width="135">
 </p>
 
-# Qemu Application — Android native migration (main)
+# Qemu Application — Native Android QEMU Research
 
-![Status](https://img.shields.io/badge/native%20engine-integration%20pending-orange)
 [![Android CI](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/build-apk.yml/badge.svg?branch=main)](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/build-apk.yml)
 
-> **ENGINE INTEGRATION IN PROGRESS — NOT YET A WORKING STANDALONE QEMU APK**
->
-> The main branch now removes the Termux dependency from the app architecture. It compiles a **native Android NDK/JNI host adapter**, not the QEMU emulator itself. Until Android ARM64-compatible QEMU system libraries and guest firmware are built, bundled, and verified, **it cannot boot a VM**. A green GitHub Actions build only means the application and JNI adapter compile.
+> **Developer research preview. Not yet a bootable standalone QEMU APK.**
+> Both upstream QEMU 11.1.2 and the Android ARM64 minimal QEMU build compile in GitHub Actions. The experimental APK packages both real native executables, but it still lacks required shared libraries, firmware and path relocation. No Termux installation is intended for the eventual app.
 
-**Main now tracks this native prototype**, at the maintainer's request. The earlier Termux-based v0.4 remains in Git history and prior downloadable releases, but does not represent the current source. The native prototype is not capable of booting guests yet.
+## Current milestones
 
-## What changed here
+| Component | Status |
+| --- | --- |
+| Android native VM-list UI and ⋮ file menus | Implemented |
+| Android file picker: ISO, custom kernel, DTB | Implemented |
+| Private guest image storage + sparse RAW disk | Implemented |
+| Upstream qemu/QEMU 11.1.2 Linux QMP smoke test | **Passed** |
+| QEMU 11.1.2 Android ARM64/Bionic cross-compile | **Passed** |
+| Reduced direct native dependencies from 31 to 15 | **Passed** |
+| QEMU ARM64 + x86_64 executables packaged inside experimental APK | **Passed packaging test** |
+| Full dependency closure, relocation and firmware | **Not complete** |
+| Real-device Android guest boot, VNC and QMP lifecycle | **Not yet verified** |
 
-- Native minimal VM-list UI. No Termux setup, environment buttons, shell commands, or giant Start button.
-- Tap a machine card to **attempt to boot** when the native QEMU runtime is actually present.
-- Menu **⋮** for **ISO**, custom **ARM64 kernel**, DTB, CPU, RAM, disk capacity, disk creation, display, and stop.
-- Android document picker imports selected guest files directly into the app's **private files directory**.
-- Creates sparse RAW virtual disks without Termux/qemu-img.
-- Android foreground service owns the QEMU session lifecycle, not the Activity UI thread.
-- Android NDK bridge can dynamically load native QEMU system shared libraries using the symbols \`qemu_init\`, \`qemu_main_loop\`, and \`qemu_cleanup\`.
-- Reuses the localhost VNC viewer and sends QMP stop over localhost.
+## What has changed architecturally?
 
-## Native architecture
-
-\`\`\`text
+```text
 Android APK (arm64-v8a)
-  ├─ MainActivity                   Android VM list, SAF pickers, config
-  ├─ NativeVmService               Foreground VM session
-  │   └─ NativeEngine / JNI        libqemu_bridge.so (included, NDK build)
-  │       └─ dlopen (NOT INCLUDED YET)
-  │           ├─ libqemu-system-x86_64.so   QEMU compiled for Android Bionic
-  │           ├─ libqemu-system-aarch64.so  QEMU compiled for Android Bionic
-  │           └─ libglib / pixman / other LGPL dependencies
-  ├─ Android app-private media/     Selected ISO, kernel, DTB
-  ├─ Android app-private machine.img Sparse RAW disk
-  └─ ViewerActivity                localhost VNC :5901 / QMP :4444
-\`\`\`
+├── MainActivity / Android system file picker
+├── NativeVmService (foreground service, ProcessBuilder)
+│   └── ApplicationInfo.nativeLibraryDir
+│       ├── libqemu-system-aarch64.so    ← actual Bionic PIE executable
+│       ├── libqemu-system-x86_64.so     ← actual Bionic PIE executable
+│       └── required dependencies        ← NOT bundled yet
+├── app-private media images / sparse RAW disk
+├── app-private qemu.log (View QEMU log in ⋮ menu)
+└── ViewerActivity / local VNC
+```
 
-**Important:** The **ABI in \`arm64-v8a\` denotes the physical Android phone's CPU**, not the architecture of guest Windows/Linux. To emulate an x86 guest on Android ARM64, the library must still be an Android ARM64 ELF but support QEMU's **x86_64-softmmu** target.
+The ARM64-host executables are **not QEMU JNI libraries** and do **not** expose qemu_init/qemu_main_loop/qemu_cleanup. The APK now has an Android ProcessBuilder execution path instead of attempting to dlopen the executables through those unavailable entrypoints. This path still needs dependency and device testing.
 
-## QEMU runtime build lab (GitHub Actions)
+Executables are staged under `jniLibs/arm64-v8a` with `lib*.so` filenames and `useLegacyPackaging true`, allowing Android to extract them into nativeLibraryDir instead of trying to exec files inside writable app storage. **The name .so does not convert an executable into a JNI library.**
 
-The project now has a **separate upstream QEMU 11.1.2 build experiment**:
+## GitHub Actions experiments and results
 
-**[Open QEMU Runtime Lab](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/qemu-runtime-lab.yml)** · [Build details & artifact guide](docs/QEMU_RUNTIME_LAB.md).
+1. [QEMU Runtime Lab](https://github.com/zaidanfaiz/Qemu-aplication/actions/runs/40400628542) builds native Linux/QMP smoke-test binaries and Android ARM64 QEMU binaries from upstream QEMU 11.1.2.
+2. [QEMU Minimal Runtime Experiment](https://github.com/zaidanfaiz/Qemu-aplication/actions/runs/40402854329) reduced direct Android ELF dependencies **31 → 15** for both guest targets. [Audit](docs/QEMU_RUNTIME_AUDIT.md).
+3. [Executable APK Staging Lab](https://github.com/zaidanfaiz/Qemu-aplication/actions/runs/40452007211) packages real Android ARM64 QEMU executables into a debug APK. The artifact is intentionally named **INCOMPLETE-native-QEMU-executable-APK-NOT-BOOTABLE**.
+4. [Additional minimal-build experiments](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/qemu-arm64-minimal.yml) work toward removing ALSA/PulseAudio/JACK and other optional dependencies.
 
-The Linux x86_64 QEMU build and QMP smoke test have passed. The first **Android ARM64 Bionic QEMU cross-compile also completed**, producing AArch64 ELF executables, but its initial artifact upload failed because Debian filenames with an epoch (e.g. `1:11.1.2`) contain a colon that GitHub's artifact uploader rejects. The workflow now repackages Android outputs into a safe-named archive, includes ELF dependency audits, and keeps the files **separate from the APK**.
+Build logs and dependency numbers: [QEMU Runtime Audit](docs/QEMU_RUNTIME_AUDIT.md). Experimental packaging guide: [QEMU Executable APK Lab](docs/QEMU_EXECUTABLE_APK_LAB.md).
 
-**Do not confuse a compiled Android executable with a compatible JNI library.** The current native app bridge requires `libqemu-system-*.so` exports and an audited runtime dependency/firmware bundle, which are not yet integrated. The experiment is not evidence of successful Android guest boot.
+## Tutorial: using the Android UI
 
-## Work still required before it can boot guests
+**This UI is experimental and does not boot a guest until the runtime is completed.**
 
-1. Select and pin a QEMU version and compile its **system emulator targets** using Android NDK/Clang and **Bionic libc**. Native Linux \`qemu-system-*\` binaries from a standard Ubuntu package won't work on Android.
-2. Build and package the correct compatible native dependencies (e.g. GLib, pixman, libffi, and other selected features). Check correct C++ ABI, Android 16 KB page size compatibility, and dynamic library linking.
-3. Produce \`libqemu-system-x86_64.so\` and \`libqemu-system-aarch64.so\` that export the **three required entry points**. Stock QEMU executables do not necessarily expose these as callable shared-library entry points. A source patch/build adapter may be needed.
-4. Put the verified libraries and dependencies in \`app/src/main/jniLibs/arm64-v8a/\`. Gradle's \`useLegacyPackaging true\` makes them available in \`ApplicationInfo.nativeLibraryDir\`.
-5. Bundle legally redistributable QEMU firmware (BIOS, VGA BIOS, UEFI where needed) and adjust launch arguments/firmware search path. A library alone is not enough for PC guests.
-6. Run hardware-device tests for launch, QMP, VNC, disk persistence, app backgrounding, shutdown, thermal/load, and Android 16 behavior.
-7. Test multi-profile isolation and image-import failure cleanup before shipping a production release.
-8. Review and preserve **GPL/LGPL license obligations** for the selected QEMU and dependencies. App-level MIT licensing does not override upstream licenses.
+1. Install the debug APK built by Android CI or the special **INCOMPLETE** staging APK for packaging-only tests.
+2. Open Qemu Application. Tap **⋮** → **Choose ISO** and select the installer from Android Files. The app imports it into private app storage (this may require sufficient free storage).
+3. For ARM64: select **Architecture → aarch64**, then **Choose custom kernel** and optionally **Choose DTB**, using the same Android file picker.
+4. Choose RAM, core count and disk capacity in the **⋮** menu and tap **Create virtual disk**. The sparse RAW disk persists between sessions.
+5. Tapping the VM card will attempt native execution only if a packaged QEMU binary is detected. With the current staging APK, missing libraries/firmware are expected to prevent boot.
+6. For native launch diagnostics, tap **⋮ → View QEMU log**; process output and load errors are stored in `qemu.log`. QMP stop and VNC display are not yet tested on a physical device.
 
-### Why no downloaded third-party QEMU .so yet?
+**Important:** The normal debug APK built from main contains only the Android native application and native bridge; it does **not** include QEMU executables. The experimental staging workflow produces a separate and explicitly incomplete APK. Older `dev-latest` releases may still refer to the discontinued Termux controller build.
 
-Unverified, precompiled binaries from other apps are not necessarily ABI-compatible, license-compliant, or safe to redistribute. Copying a \`.so\` without ensuring it exports the expected symbols, has the required dependencies, and includes appropriate firmware could lead to native crashes or a misleading "it works" APK.
+## What remains before a usable APK?
 
-References:
-- [QEMU upstream](https://gitlab.com/qemu-project/qemu)
-- [Limbo developers' Android-native QEMU build](https://github.com/limboemu/limbo/blob/master/README.developers)
-- [Vectras native runtime architecture reference](https://github.com/FarizGD/Vectras-VM-Android-NativeQemu)
-- [Android NDK](https://developer.android.com/ndk)
+- Resolve **12 non-system direct shared library dependencies** observed in the 15-dependency minimal build, plus their transitive dependencies (e.g. libglib and libpixman). No library may be assumed present on all devices.
+- Ensure proper ELF SONAMEs, Android app linker namespace compatibility, architecture alignment, hardcoded Termux runpaths and firmware search paths. The compiled binary currently uses a Termux RUNPATH.
+- Bundle the required PC BIOS/ROMs or ARM guest boot resources under a correct Android firmware/data location.
+- Verify ProcessBuilder native execution, VNC, QMP, guest boot, storage and thermal stability on a real Android ARM64 device.
+- Fulfill QEMU GPL and dependency LGPL/source redistribution obligations before release.
 
-## Compile the JNI prototype
+Do **not** rename Linux binaries to .so, assume binary packaging is proof of boot, or copy Android binaries into writable app storage and expect exec to work on Android 10+.
 
-In Android Studio, install **JDK 17, Android SDK 35, NDK 27.2.12479018 and CMake 3.22.1**.
+## Build
 
-\`\`\`sh
+Build prerequisites: JDK 17, Android SDK 35, NDK 27.2.12479018, CMake 3.22.1 and Gradle 8.9.
+
+```sh
 gradle assembleDebug
-\`\`\`
+```
 
-GitHub Actions builds \`native-qemu\` as a separately labeled artifact **NativeBridge-Prototype-NOT-QEMU**, and **never publishes it to the working main release**. It also warns when QEMU core libraries are absent from the APK.
+Normal Android CI uploads `NativeBridge-Prototype-NOT-QEMU`; staging CI uploads `INCOMPLETE-native-QEMU-executable-APK-NOT-BOOTABLE`. These are not official working emulator releases.
 
-This code is **not a ready-to-use native emulator** until the runtime integration criteria above pass. The existing [legacy dev-latest Release](https://github.com/zaidanfaiz/Qemu-aplication/releases/tag/dev-latest) may still contain the earlier Termux-based build; it is **not** the current native main APK.
+## Attribution and licensing
 
-## Experimental user flow once the engine is bundled
-
-Open the APK → choose the guest ISO / kernel using the **⋮** menu → configure guest resources → create a disk → tap the VM card → open the VNC display. No Termux app, shell permissions, or manual path entry should be necessary once QEMU is fully integrated.
-
-The custom ARM64 kernel path is **generic QEMU \`virt\`**, not automatically a bootable iPhone XNU port. The [iOS emulator research project](https://github.com/zaidanfaiz/ios-emulator) needs its own compatible hardware model, kernel loader, firmware, and guest boot chain.
-
-## License
-
-Original glue and UI in this repository: MIT. QEMU and its libraries have separate GNU GPL/LGPL licensing requirements that must be fulfilled in any binary distribution.
+- [QEMU source](https://github.com/qemu/QEMU) and [QEMU licenses](https://www.qemu.org/docs/master/about/license.html)
+- [Termux Android build recipes](https://github.com/termux/termux-packages) used only in GitHub Actions as a cross-compilation toolchain, not as an app runtime requirement.
+- Android application glue code: MIT; upstream QEMU and shared libraries retain their individual licenses.
