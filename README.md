@@ -65,7 +65,7 @@ Qemu Application (Android APK)
 
 ## APK kandidat native
 
-Workflow **[Native Dependency Integration Lab](https://github.com/zaidanfaiz/Qemu-aplication/actions/runs/40474093675)** sudah berhasil menghasilkan satu APK yang memuat emulator QEMU Android ARM64 dan dependensinya. Audit artifact terkonfirmasi:
+Workflow **[Native Dependency Integration Lab](https://github.com/zaidanfaiz/Qemu-aplication/actions/runs/40476148120)** sudah berhasil menghasilkan satu APK yang memuat emulator QEMU Android ARM64 dan dependensinya. Audit artifact terkonfirmasi:
 
 - **2** executable QEMU untuk guest x86_64 dan AArch64.
 - **11** library non-sistem yang ditemukan secara rekursif dari **8** paket ARM64, dengan verifikasi checksum paket.
@@ -73,7 +73,7 @@ Workflow **[Native Dependency Integration Lab](https://github.com/zaidanfaiz/Qem
 - Penyesuaian nama library, `DT_NEEDED`, dan `RUNPATH=$ORIGIN` berhasil melewati audit di runner.
 - Ukuran APK sekitar **16,7 MB**. Struktur APK serta CRC sudah diperiksa.
 
-**Unduh melalui GitHub:** [buka build perbaikan SeaBIOS](https://github.com/zaidanfaiz/Qemu-aplication/actions/runs/40474093675), lalu bagian **Artifacts** → `QEMU-ANDROID-NATIVE-DEPENDENCY-CANDIDATE-UNTESTED`. Ekstrak ZIP dan instal `app-debug.apk`.
+**Unduh melalui GitHub:** [buka build terbaru dengan SeaBIOS + keymap](https://github.com/zaidanfaiz/Qemu-aplication/actions/runs/40476148120), lalu bagian **Artifacts** → `QEMU-ANDROID-NATIVE-DEPENDENCY-CANDIDATE-UNTESTED`. Ekstrak ZIP dan instal `app-debug.apk`.
 
 **Perlu diperhatikan:** dependency closure di CI bukan bukti Android linker akan menerima seluruh library saat runtime. QEMU mungkin masih gagal start akibat linker namespace, path yang tertanam, opsi QEMU, maupun firmware. Gunakan untuk pengujian, bukan untuk data penting.
 
@@ -105,7 +105,11 @@ Ini disebabkan **folder `share/qemu/keymaps/` belum ikut dipaketkan**. Pipeline 
 
 **ISO installer saja sudah cukup untuk VM x86_64.** Pilih ISO menggunakan **⋮ → Choose ISO**, pilih arsitektur **x86_64**, buat disk virtual lewat **Create virtual disk**, lalu ketuk kartu VM. Lu **tidak perlu** memilih custom kernel, initrd, ataupun DTB untuk ISO x86_64. Kernel/DTB adalah opsi khusus boot ARM64 langsung.
 
-Hasil pengemasan CI tetap harus diuji di HP untuk memastikan VNC dan boot installer bekerja, karena bisa saja ada kegagalan QEMU berikutnya.
+**Build terverifikasi:** [Actions run 40476148120](https://github.com/zaidanfaiz/Qemu-aplication/actions/runs/40476148120) berhasil dan APK-nya sudah diperiksa. APK memuat `keymaps/en-us` (27.086 byte), 34 layout keyboard, `bios-256k.bin`, dan `vgabios-stdvga.bin`; pemeriksaan CRC APK lulus. Belum ada bukti boot ISO berhasil pada perangkat fisik.
+
+**Panduan uji ISO x86_64:** instal APK kandidat terbaru sebagai pembaruan (jangan uninstall agar data VM tidak terhapus) → **⋮ → Architecture → x86_64** → **⋮ → Choose ISO** → **⋮ → Create virtual disk** (kalau belum pernah dibuat) → ketuk **Local VM** → **Display**. Jika VNC masih hitam, buka **⋮ → View QEMU log → Copy log**.
+
+
 
 ## Pengujian aplikasi
 
