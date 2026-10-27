@@ -113,8 +113,8 @@ public final class NativeVmService extends Service {
                         "Native QEMU exited rc=" + exit + "; see qemu.log");
                 try (java.io.FileOutputStream output = new java.io.FileOutputStream(
                         new File(getFilesDir(), "qemu.log"), true)) {
-                    String line = "\\n[QEMU EXIT STATUS] " + exit + "\\n";
-                    output.write(line.replace("\\\\n", "\\n").getBytes(StandardCharsets.UTF_8));
+                    String line = "\n[QEMU EXIT STATUS] " + exit + "\n";
+                    output.write(line.getBytes(StandardCharsets.UTF_8));
                 } catch (Exception ignored) { }
             } catch (Throwable t) {
                 android.util.Log.e("QemuNativeService", "Native VM failed", t);
