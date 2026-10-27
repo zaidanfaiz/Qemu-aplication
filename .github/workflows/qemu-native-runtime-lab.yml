@@ -61,6 +61,8 @@ jobs:
           test -s "$ROMS/bios-256k.bin"
           test -s "$ROMS/bios.bin"
           test -s "$ROMS/vgabios-stdvga.bin"
+          # VNC keyboard layouts live under share/qemu/keymaps, not the flat ROM list.
+          test -s "$ROMS/keymaps/en-us"
           test -f "$ROMS/edk2-aarch64-code.fd"
           mkdir -p app/src/main/assets/qemu-roms native-runtime-audit
           # Copy all ROMs needed by basic PC/virt machines, not just legacy bios.bin.
@@ -75,12 +77,20 @@ jobs:
               cp "$ROMS/$firmware" "app/src/main/assets/qemu-roms/$firmware"
             fi
           done
+          # Preserve the QEMU directory layout: -L <firmware> resolves keymaps/en-us.
+          # Include all upstream keymaps to support other guest keyboard layouts.
+          mkdir -p app/src/main/assets/qemu-roms/keymaps
+          cp -a "$ROMS/keymaps/." app/src/main/assets/qemu-roms/keymaps/
+          test -s app/src/main/assets/qemu-roms/keymaps/en-us
           # Do not publish an APK that cannot satisfy the default x86 PC firmware.
           test -s app/src/main/assets/qemu-roms/bios-256k.bin
           test "$(stat -c %s app/src/main/assets/qemu-roms/bios-256k.bin)" -eq 262144
           test -s app/src/main/assets/qemu-roms/vgabios-stdvga.bin
-          (cd app/src/main/assets/qemu-roms && sha256sum * \
-            > "$GITHUB_WORKSPACE/native-runtime-audit/FIRMWARE-SHA256SUMS")
+          # Recursive manifest includes keymaps/ files; sha256sum * cannot handle dirs.
+          (cd app/src/main/assets/qemu-roms &&
+            find . -type f ! -name FIRMWARE-SHA256SUMS -print0 |
+              LC_ALL=C sort -z | xargs -0 sha256sum >
+                "$GITHUB_WORKSPACE/native-runtime-audit/FIRMWARE-SHA256SUMS")
           # Small manifest lets Android skip repeatedly extracting large EDK2 assets.
           cp native-runtime-audit/FIRMWARE-SHA256SUMS \
             app/src/main/assets/qemu-roms/FIRMWARE-SHA256SUMS
@@ -136,6 +146,7 @@ jobs:
           APK=app/build/outputs/apk/debug/app-debug.apk
           unzip -l "$APK" | grep -F 'lib/arm64-v8a/libqemu-system-aarch64.so'
           unzip -l "$APK" | grep -F 'lib/arm64-v8a/libqemu-system-x86_64.so'
+          unzip -l "$APK" | grep -F 'assets/qemu-roms/keymaps/en-us'
           unzip -l "$APK" | grep -F 'assets/qemu-roms/bios-256k.bin'
           unzip -l "$APK" | grep -F 'assets/qemu-roms/vgabios-stdvga.bin'
           unzip -l "$APK" | grep -F 'assets/qemu-roms/bios.bin'

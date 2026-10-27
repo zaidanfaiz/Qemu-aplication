@@ -92,6 +92,21 @@ Penyebabnya adalah daftar firmware dalam workflow APK yang hanya memasukkan `bio
 
 **Penting:** hanya APK hasil **Native Dependency Integration Lab yang lebih baru dari commit perbaikan** yang memiliki BIOS tersebut. APK sebelumnya masih akan gagal dengan pesan yang sama. Perbaikan telah **lulus GitHub Actions run 40474093675**. Isi APK hasil build telah diperiksa dan memuat `bios-256k.bin` (262144 byte), `vgabios-stdvga.bin` (39424 byte), dan manifest firmware. **Boot sistem operasi tetap perlu diuji pada HP**; error BIOS berikutnya atau error konfigurasi lain masih mungkin.
 
+## Perbaikan keymap VNC (27 Oktober 2026)
+
+Pengujian HP setelah SeaBIOS berhasil dimuat menunjukkan error:
+```text
+libqemu-system-x86_64.so: -vnc 127.0.0.1:1:
+could not find keymap file for language 'en-us'
+[QEMU EXIT STATUS] 1
+```
+
+Ini disebabkan **folder `share/qemu/keymaps/` belum ikut dipaketkan**. Pipeline native sekarang membawa seluruh keymap upstream (termasuk `keymaps/en-us`) ke `assets/qemu-roms/keymaps/`, memvalidasi file di dalam APK, dan Android mengekstraknya ke direktori firmware yang sama dengan BIOS. Firmware cache otomatis diperbarui karena manifest berubah.
+
+**ISO installer saja sudah cukup untuk VM x86_64.** Pilih ISO menggunakan **⋮ → Choose ISO**, pilih arsitektur **x86_64**, buat disk virtual lewat **Create virtual disk**, lalu ketuk kartu VM. Lu **tidak perlu** memilih custom kernel, initrd, ataupun DTB untuk ISO x86_64. Kernel/DTB adalah opsi khusus boot ARM64 langsung.
+
+Hasil pengemasan CI tetap harus diuji di HP untuk memastikan VNC dan boot installer bekerja, karena bisa saja ada kegagalan QEMU berikutnya.
+
 ## Pengujian aplikasi
 
 1. Instal **APK kandidat native** dari Native Dependency Lab. Untuk uji engine, jangan memakai APK CI reguler karena belum menyertakan QEMU.

@@ -35,36 +35,17 @@ final class NativeFirmware {
         if (currentManifest != null && stamp.isFile()
                 && currentManifest.equals(new String(Files.readAllBytes(stamp.toPath()),
                         StandardCharsets.UTF_8))
-                && allFilesExist(folder, entries)) {
+                && allFilesExist(assets, ASSET_ROOT, folder)) {
             checkRequiredPcBios(folder, guestArchitecture);
             return folder;
         }
 
+        // QEMU's -L directory contains nested assets like keymaps/en-us.
+        // Copy recursively; the former flat copier could not package VNC keymaps.
         for (String name : entries) {
             if (!safeName(name)) throw new IOException("Invalid firmware name: " + name);
             if (name.equals(MANIFEST)) continue;
-
-            File target = new File(folder, name);
-            File temp = new File(folder, name + ".partial");
-            if (temp.exists() && !temp.delete())
-                throw new IOException("Cannot remove interrupted firmware import: " + name);
-
-            try (InputStream input = assets.open(ASSET_ROOT + "/" + name);
-                 FileOutputStream output = new FileOutputStream(temp)) {
-                byte[] buffer = new byte[64 * 1024];
-                int count;
-                while ((count = input.read(buffer)) != -1) {
-                    if (count > 0) output.write(buffer, 0, count);
-                }
-                output.getFD().sync();
-            } catch (IOException ex) {
-                temp.delete();
-                throw ex;
-            }
-            if (target.exists() && !target.delete())
-                throw new IOException("Cannot replace firmware: " + name);
-            if (!temp.renameTo(target))
-                throw new IOException("Cannot finish firmware import: " + name);
+            copyAssetTree(assets, ASSET_ROOT + "/" + name, new File(folder, name));
         }
 
         checkRequiredPcBios(folder, guestArchitecture);
@@ -83,12 +64,50 @@ final class NativeFirmware {
         return folder;
     }
 
-    private static boolean allFilesExist(File folder, String[] entries) {
-        for (String name : entries) {
-            if (!safeName(name)) return false;
-            if (name.equals(MANIFEST)) continue;
-            File file = new File(folder, name);
-            if (!file.isFile() || file.length() == 0) return false;
+    private static void copyAssetTree(AssetManager assets, String assetPath, File target)
+            throws IOException {
+        String[] children = assets.list(assetPath);
+        if (children != null && children.length > 0) {
+            if (!target.isDirectory() && !target.mkdirs())
+                throw new IOException("Cannot create firmware subdirectory: " + assetPath);
+            for (String child : children) {
+                if (!safeName(child)) throw new IOException("Unsafe firmware asset name");
+                copyAssetTree(assets, assetPath + "/" + child, new File(target, child));
+            }
+            return;
+        }
+
+        File temp = new File(target.getParentFile(), target.getName() + ".partial");
+        if (temp.exists() && !temp.delete())
+            throw new IOException("Cannot clean old firmware partial file");
+        try (InputStream input = assets.open(assetPath);
+             FileOutputStream output = new FileOutputStream(temp)) {
+            byte[] buffer = new byte[64 * 1024];
+            int count;
+            while ((count = input.read(buffer)) != -1)
+                if (count > 0) output.write(buffer, 0, count);
+            output.getFD().sync();
+        } catch (IOException ex) {
+            temp.delete();
+            throw ex;
+        }
+        if (target.exists() && !target.delete())
+            throw new IOException("Cannot replace firmware: " + assetPath);
+        if (!temp.renameTo(target))
+            throw new IOException("Cannot complete firmware import: " + assetPath);
+    }
+
+    private static boolean allFilesExist(AssetManager assets, String path, File target)
+            throws IOException {
+        String[] entries = assets.list(path);
+        if (entries == null || entries.length == 0)
+            return target.isFile() && target.length() > 0;
+        if (!target.isDirectory()) return false;
+        for (String child : entries) {
+            if (!safeName(child)) return false;
+            if (path.equals(ASSET_ROOT) && child.equals(MANIFEST)) continue;
+            if (!allFilesExist(assets, path + "/" + child, new File(target, child)))
+                return false;
         }
         return true;
     }
@@ -115,6 +134,10 @@ final class NativeFirmware {
         if (!bios.isFile() || bios.length() != 262144L)
             throw new IOException("Required x86 PC BIOS missing or invalid: bios-256k.bin. " +
                     "Install the latest Native Dependency Lab APK (old builds omitted SeaBIOS).");
+        File keymap = new File(folder, "keymaps/en-us");
+        if (!keymap.isFile() || keymap.length() == 0L)
+            throw new IOException("VNC keyboard layout missing: keymaps/en-us. " +
+                    "Install a Native Dependency Lab APK built after the keymap fix.");
         File vga = new File(folder, "vgabios-stdvga.bin");
         if (!vga.isFile() || vga.length() == 0L)
             throw new IOException("Required x86 VGA ROM missing: vgabios-stdvga.bin.");
