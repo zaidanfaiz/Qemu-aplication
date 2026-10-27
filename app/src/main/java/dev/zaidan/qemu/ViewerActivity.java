@@ -6,6 +6,11 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.view.Gravity;
+import android.widget.HorizontalScrollView;
+import android.widget.FrameLayout;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.MotionEvent;
@@ -31,69 +36,150 @@ public class ViewerActivity extends Activity {
     private ScreenView screen;
     private TextView status;
 
+    private static final int BG = 0xFF101216, BAR = 0xFF191C22;
+    private static final int FG = 0xFFE7EAF0, MUTED = 0xFF9CA5B3;
+    private LinearLayout body;
+    private TextView emptyHeading, emptySubtitle;
+
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().setStatusBarColor(0xFF0B1220);
-        getWindow().setNavigationBarColor(0xFF0B1220);
+        getWindow().setStatusBarColor(BG);
+        getWindow().setNavigationBarColor(BG);
+        getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
 
-        LinearLayout body = new LinearLayout(this);
+        body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
-        body.setBackgroundColor(0xFF0B1220);
+        body.setBackgroundColor(BG);
+        body.setOnApplyWindowInsetsListener((view, insets) -> {
+            view.setPadding(0, insets.getSystemWindowInsetTop(),
+                0, insets.getSystemWindowInsetBottom());
+            return insets;
+        });
         setContentView(body);
 
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(dp(12), 0, dp(13), 0);
+        header.setBackgroundColor(BAR);
+        body.addView(header, new LinearLayout.LayoutParams(-1, dp(56)));
+
+        Button back = action("‹  Machines", false, () -> finish());
+        header.addView(back, new LinearLayout.LayoutParams(dp(122), dp(40)));
+
         status = new TextView(this);
-        status.setText("VNC • Connecting to 127.0.0.1:5901");
-        status.setTextColor(Color.WHITE);
-        status.setPadding(dp(12), dp(10), dp(8), dp(8));
-        bar.addView(status, new LinearLayout.LayoutParams(0, -2, 1));
-        Button reconnect = action("Reconnect", () -> connect());
-        bar.addView(reconnect);
-        body.addView(bar);
+        status.setText("Connecting to local display…");
+        status.setTextColor(MUTED);
+        status.setTextSize(13);
+        status.setMaxLines(1);
+        status.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        status.setGravity(Gravity.CENTER_VERTICAL);
+        status.setPadding(dp(13), 0, dp(10), 0);
+        header.addView(status, new LinearLayout.LayoutParams(0, dp(43), 1));
 
+        Button reconnect = action("Retry", true, this::connect);
+        header.addView(reconnect, new LinearLayout.LayoutParams(dp(82), dp(40)));
+
+        FrameLayout display = new FrameLayout(this);
+        display.setBackgroundColor(0xFF070809);
+        body.addView(display, new LinearLayout.LayoutParams(-1, 0, 1));
         screen = new ScreenView();
-        body.addView(screen, new LinearLayout.LayoutParams(-1, 0, 1));
+        display.addView(screen, new FrameLayout.LayoutParams(-1, -1));
 
-        LinearLayout keyboard = new LinearLayout(this);
-        keyboard.setOrientation(LinearLayout.HORIZONTAL);
-        keyboard.addView(action("ESC", () -> press(0xFF1B)));
-        keyboard.addView(action("Tab", () -> press(0xFF09)));
-        keyboard.addView(action("Enter", () -> press(0xFF0D)));
-        keyboard.addView(action("⌫", () -> press(0xFF08)));
-        keyboard.addView(action("←", () -> press(0xFF51)));
-        keyboard.addView(action("↑", () -> press(0xFF52)));
-        keyboard.addView(action("↓", () -> press(0xFF54)));
-        keyboard.addView(action("→", () -> press(0xFF53)));
-        body.addView(keyboard);
+        LinearLayout empty = new LinearLayout(this);
+        empty.setOrientation(LinearLayout.VERTICAL);
+        empty.setGravity(Gravity.CENTER);
+        empty.setPadding(dp(16), dp(8), dp(16), dp(8));
+        FrameLayout.LayoutParams emptyPos =
+             new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER);
+        display.addView(empty, emptyPos);
+        emptyHeading = new TextView(this);
+        emptyHeading.setText("Display not connected");
+        emptyHeading.setTextSize(19);
+        emptyHeading.setTextColor(FG);
+        emptyHeading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        emptyHeading.setGravity(Gravity.CENTER);
+        empty.addView(emptyHeading);
+        emptySubtitle = new TextView(this);
+        emptySubtitle.setText("Start a virtual machine from Machines, then retry.");
+        emptySubtitle.setTextSize(13);
+        emptySubtitle.setTextColor(MUTED);
+        emptySubtitle.setGravity(Gravity.CENTER);
+        emptySubtitle.setPadding(0, dp(7), 0, 0);
+        empty.addView(emptySubtitle);
+
+        HorizontalScrollView keyScroll = new HorizontalScrollView(this);
+        keyScroll.setHorizontalScrollBarEnabled(false);
+        keyScroll.setFillViewport(true);
+        keyScroll.setBackgroundColor(BAR);
+        LinearLayout keys = new LinearLayout(this);
+        keys.setGravity(Gravity.CENTER_VERTICAL);
+        keys.setPadding(dp(9), dp(3), dp(9), dp(3));
+        for (String label : new String[]{"Esc", "Tab", "Enter", "⌫", "←", "↑", "↓", "→"}) {
+            final int code;
+            switch (label) {
+                case "Esc": code = 0xFF1B; break;
+                case "Tab": code = 0xFF09; break;
+                case "Enter": code = 0xFF0D; break;
+                case "⌫": code = 0xFF08; break;
+                case "←": code = 0xFF51; break;
+                case "↑": code = 0xFF52; break;
+                case "↓": code = 0xFF54; break;
+                default: code = 0xFF53; break;
+            }
+            Button key = action(label, false, () -> press(code));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                label.equals("Enter") ? dp(78) : dp(58), dp(40));
+            lp.rightMargin = dp(7);
+            keys.addView(key, lp);
+        }
+        keyScroll.addView(keys);
+        body.addView(keyScroll, new LinearLayout.LayoutParams(-1, dp(50)));
 
         LinearLayout sendRow = new LinearLayout(this);
-        sendRow.setOrientation(LinearLayout.HORIZONTAL);
+        sendRow.setGravity(Gravity.CENTER_VERTICAL);
+        sendRow.setBackgroundColor(BAR);
+        sendRow.setPadding(dp(12), dp(2), dp(12), dp(7));
         EditText input = new EditText(this);
-        input.setTextColor(Color.WHITE);
-        input.setHintTextColor(0xFF93A3B8);
-        input.setHint("Type text to guest");
+        input.setTextColor(FG);
+        input.setHintTextColor(MUTED);
+        input.setTextSize(14);
+        input.setHint("Type a command or text…");
         input.setSingleLine(true);
-        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
-        sendRow.addView(input, new LinearLayout.LayoutParams(0, dp(51), 1));
-        sendRow.addView(action("Send", () -> {
+        input.setInputType(InputType.TYPE_CLASS_TEXT);
+        input.setPadding(dp(12), 0, dp(12), 0);
+        input.setBackground(shape(0xFF242830, 10));
+        LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(0, dp(42), 1);
+        inputLp.rightMargin = dp(10);
+        sendRow.addView(input, inputLp);
+        sendRow.addView(action("Send", true, () -> {
             RfbClient c = client;
             if (c != null) c.sendText(input.getText().toString());
             input.setText("");
-        }));
-        body.addView(sendRow);
+        }), new LinearLayout.LayoutParams(dp(76), dp(42)));
+        body.addView(sendRow, new LinearLayout.LayoutParams(-1, dp(52)));
         connect();
     }
 
-    private Button action(String text, Runnable click) {
+    private GradientDrawable shape(int color, int radius) {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(color);
+        d.setCornerRadius(dp(radius));
+        return d;
+    }
+
+    private Button action(String text, boolean primary, Runnable click) {
         Button b = new Button(this);
         b.setAllCaps(false);
         b.setText(text);
-        b.setTextColor(Color.WHITE);
-        b.setTextSize(12);
-        b.setMinimumWidth(0);
+        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        b.setTextColor(primary ? 0xFF111317 : FG);
+        b.setTextSize(13);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
         b.setMinWidth(0);
-        b.setPadding(dp(6), 0, dp(6), 0);
+        b.setMinimumWidth(0);
+        b.setPadding(dp(7), 0, dp(7), 0);
+        b.setBackground(shape(primary ? 0xFFC2CCD9 : 0xFF303641, 10));
         b.setOnClickListener(v -> click.run());
         return b;
     }
@@ -106,6 +192,8 @@ public class ViewerActivity extends Activity {
     private void connect() {
         if (client != null) client.close();
         synchronized (framebufferLock) { framebuffer = null; }
+        if (emptyHeading != null) emptyHeading.setVisibility(View.VISIBLE);
+        if (emptySubtitle != null) emptySubtitle.setVisibility(View.VISIBLE);
         screen.invalidate();
         status.setText("VNC • Connecting to 127.0.0.1:5901");
         RfbClient next = new RfbClient();
@@ -146,9 +234,7 @@ public class ViewerActivity extends Activity {
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             synchronized (framebufferLock) {
-                if (framebuffer == null) {
-                    canvas.drawText("Start a VM, then tap Reconnect", dp(18), getHeight() / 2f, help);
-                } else {
+                if (framebuffer != null) {
                     canvas.drawBitmap(framebuffer, null, fitted(framebuffer.getWidth(), framebuffer.getHeight()), paint);
                 }
             }
@@ -197,7 +283,7 @@ public class ViewerActivity extends Activity {
                         lastError = e;
                         try { trying.close(); } catch (IOException ignored) {}
                         if (attempt < 10) {
-                            updateStatus("Waiting for VNC (" + attempt + "/10)...", this);
+                            updateStatus("Waiting for VM display · " + attempt + "/10", this);
                             Thread.sleep(950);
                         }
                     }
@@ -208,7 +294,13 @@ public class ViewerActivity extends Activity {
                 in = new DataInputStream(socket.getInputStream());
                 out = new DataOutputStream(socket.getOutputStream());
                 handshake();
-                updateStatus("VNC connected • " + width + "×" + height + " • touch = drag/click", this);
+                updateStatus("Connected · " + width + "×" + height, this);
+                runOnUiThread(() -> {
+                    if (client == this && !isFinishing()) {
+                        emptyHeading.setVisibility(View.GONE);
+                        emptySubtitle.setVisibility(View.GONE);
+                    }
+                });
                 while (active && !socket.isClosed()) {
                     int message = in.readUnsignedByte();
                     if (message == 0) {
@@ -251,7 +343,15 @@ public class ViewerActivity extends Activity {
                     }
                 }
             } catch (Exception e) {
-                if (active) updateStatus("VNC disconnected: " + e.getMessage(), this);
+                if (active) {
+                    updateStatus("Offline · " + e.getClass().getSimpleName(), this);
+                    runOnUiThread(() -> {
+                        if (client == this && !isFinishing()) {
+                            emptyHeading.setText("No VM display");
+                            emptySubtitle.setText("QEMU VNC is not listening on 127.0.0.1:5901.\nOpen Machines → ⋮ → View QEMU log.");
+                        }
+                    });
+                }
             } finally { close(); }
         }
 
