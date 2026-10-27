@@ -52,7 +52,17 @@ Viewer mendukung **tap**, **tekan-tahan**, dan **swipe/drag** langsung pada area
 - Tekan-tahan = tombol utama ditahan sampai jari dilepaskan.
 - Swipe = pergerakan pointer dengan tombol utama tetap ditekan.
 - Dua jari = scroll vertikal atau horizontal melalui RFB.
-- Touch tetap dibatasi pada **satu pointer guest**. Gestur seperti pinch-to-zoom sistem iOS serta multitouch native memerlukan perangkat emulasi dan driver guest khusus. **ISO/guest belum otomatis mendukung touchscreen native iOS.**
+- Default: input **satu pointer guest** lewat VNC/USB tablet, sehingga kompatibel dengan lebih banyak ISO x86_64. Dua jari adalah **emulasi scroll**, bukan multitouch iOS.
+- Opsional: **⋯ → Guest multitouch (experimental)** membuka koneksi QMP lokal dan mengirim event multi-kontak `mtt` (begin/data/update/end) ke perangkat `virtio-multitouch-pci`. Input Android dipetakan ke koordinat absolut QEMU **0..32767**, maksimal 11 slot. Saat QMP belum siap, satu gesture memakai fallback VNC.
+- Syarat: **guest OS harus punya driver virtio multitouch**. QMP berhasil menerima event belum membuktikan guest bisa membaca sentuhan. **ISO/guest iOS tidak otomatis mendukung touchscreen native**, dan gestur pinch hanya dapat diproses bila guest mendukung driver serta gesture dua jari.
+
+### Uji kontrol sentuh
+
+1. Install APK *Native Dependency Lab* terbaru (bukan APK UI-only).
+2. Buka VM x86_64 berbasis ISO. Tap menu installer lalu coba drag sebuah elemen dengan satu jari.
+3. Jika guest mendukung wheel, geser dua jari untuk scroll.
+4. Khusus guest dengan driver `virtio-multitouch`: buka menu **⋯ → Guest multitouch (experimental)** dan coba sentuhan dua jari. Jika tidak bereaksi, kembalikan ke **Switch to standard touch**.
+5. Kalau QEMU menolak `-device virtio-multitouch-pci` atau `usb-tablet`, salin **View QEMU log** dan laporkan. Perangkat virtualnya ada dalam QEMU 11.1.2 build yang diuji, tetapi belum ada konfirmasi boot guest pada semua ISO.
 
 ## Tampilan simulator perangkat
 
