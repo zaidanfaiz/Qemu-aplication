@@ -1,8 +1,6 @@
 package dev.zaidan.qemu;
 
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.content.pm.ActivityInfo;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -11,14 +9,11 @@ import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
-import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.util.SparseIntArray;
-import android.widget.Button;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
@@ -73,7 +68,6 @@ public class ViewerActivity extends Activity {
         if (nativeTouchMode) qmpTouch.connect();
         getWindow().setStatusBarColor(BACKGROUND);
         getWindow().setNavigationBarColor(BACKGROUND);
-        getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
 
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
@@ -101,14 +95,14 @@ public class ViewerActivity extends Activity {
         LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(0, -2, 1);
         headingParams.leftMargin = dp(10);
         toolbar.addView(headings, headingParams);
-        headings.addView(text("Device preview", 17, FOREGROUND, true));
+        headings.addView(text("Phone display", 17, FOREGROUND, true));
         status = text("Connecting to local VM…", 11, SECONDARY, false);
         status.setMaxLines(1);
         status.setEllipsize(TextUtils.TruncateAt.END);
         headings.addView(status);
 
         TextView more = text("⋯", 28, FOREGROUND, true);
-        more.setContentDescription("Simulator options: keyboard, reconnect, screen mode");
+        more.setContentDescription("Simulator options: touch mode, reconnect, screen mode");
         more.setGravity(Gravity.CENTER);
         toolbar.addView(more, new LinearLayout.LayoutParams(dp(45), dp(45)));
         more.setOnClickListener(v -> openOptions(more));
@@ -119,7 +113,7 @@ public class ViewerActivity extends Activity {
 
         phone = new FrameLayout(this);
         stage.addView(phone);
-        // Remeasure on rotation and on keyboard appearance. Prevent a device
+        // Re-measure available display space without permanently visible controls.
         // whose lower frame is offscreen on short phones.
         stage.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, oright, ob) -> {
             if (r - l != oright - ol || b - t != ob - ot) sizeDevice();
@@ -201,7 +195,7 @@ public class ViewerActivity extends Activity {
         content.setLayoutParams(inner);
         island.setVisibility(deviceFrame ? View.VISIBLE : View.GONE);
         homeIndicator.setVisibility(deviceFrame ? View.VISIBLE : View.GONE);
-        footer.setText(nativeTouchMode ? "GUEST MULTITOUCH  ·  EXPERIMENTAL" :
+        footer.setText(nativeTouchMode ? "DIRECT TOUCH  ·  MULTITOUCH EXPERIMENTAL" :
                 (deviceFrame ? "TOUCH  ·  SWIPE  ·  TWO-FINGER SCROLL" :
                                "TOUCH INPUT  ·  LOCAL VNC"));
         sizeDevice();
@@ -210,15 +204,13 @@ public class ViewerActivity extends Activity {
     private void openOptions(View anchor) {
         PopupMenu menu = new PopupMenu(this, anchor);
         menu.getMenu().add(0, 1, 0, "Reconnect display");
-        menu.getMenu().add(0, 2, 1, "Keyboard & send text");
-        menu.getMenu().add(0, 3, 2, deviceFrame ? "Screen only" : "Show device frame");
-        menu.getMenu().add(0, 5, 3, nativeTouchMode ?
-            "Switch to standard touch" : "Guest multitouch (experimental)");
-        menu.getMenu().add(0, 4, 4, "Back to machines");
+        menu.getMenu().add(0, 3, 1, deviceFrame ? "Screen only" : "Show device frame");
+        menu.getMenu().add(0, 5, 2, nativeTouchMode ?
+            "Standard touch" : "Multitouch (experimental)");
+        menu.getMenu().add(0, 4, 3, "Back to machines");
         menu.setOnMenuItemClickListener(item -> {
             switch(item.getItemId()) {
                 case 1: connect(); return true;
-                case 2: openKeyboard(); return true;
                 case 3:
                     deviceFrame = !deviceFrame;
                     getPreferences(MODE_PRIVATE).edit().putBoolean("deviceFrame", deviceFrame).apply();
@@ -244,79 +236,6 @@ public class ViewerActivity extends Activity {
         menu.show();
     }
 
-    private void openKeyboard() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(8), dp(18), dp(8));
-        TextView note = text("Sends keys to the guest through VNC (single-key input).", 12, SECONDARY, false);
-        root.addView(note);
-        root.addView(new View(this), new LinearLayout.LayoutParams(1, dp(10)));
-
-        LinearLayout keys = new LinearLayout(this);
-        keys.setGravity(Gravity.CENTER);
-        root.addView(keys);
-        String[] names = {"Esc", "Tab", "Enter", "⌫"};
-        int[] codes = {0xFF1B, 0xFF09, 0xFF0D, 0xFF08};
-        for(int i = 0; i < names.length; ++i) {
-            final int keyCode = codes[i];
-            Button key = smallButton(names[i]);
-            LinearLayout.LayoutParams kp = new LinearLayout.LayoutParams(0, dp(44), 1);
-            kp.rightMargin = i < 3 ? dp(6) : 0;
-            keys.addView(key, kp);
-            key.setOnClickListener(v -> press(keyCode));
-        }
-
-        // Boot menus still need arrow navigation. Keep these in the
-        // keyboard dialog, not as a permanent bar covering the simulator.
-        LinearLayout arrows = new LinearLayout(this);
-        arrows.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams arrowsParams = new LinearLayout.LayoutParams(-1, dp(46));
-        arrowsParams.topMargin = dp(9);
-        root.addView(arrows, arrowsParams);
-        String[] arrowNames = {"←", "↑", "↓", "→"};
-        int[] arrowCodes = {0xFF51, 0xFF52, 0xFF54, 0xFF53};
-        for (int i = 0; i < arrowNames.length; i++) {
-            final int code = arrowCodes[i];
-            Button button = smallButton(arrowNames[i]);
-            LinearLayout.LayoutParams kp = new LinearLayout.LayoutParams(0, dp(42), 1);
-            kp.rightMargin = i < arrowNames.length - 1 ? dp(6) : 0;
-            arrows.addView(button, kp);
-            button.setOnClickListener(v -> press(code));
-        }
-        EditText message = new EditText(this);
-        message.setSingleLine(true);
-        message.setTextColor(FOREGROUND);
-        message.setHintTextColor(SECONDARY);
-        message.setTextSize(14);
-        message.setHint("Type text…");
-        message.setInputType(InputType.TYPE_CLASS_TEXT);
-        root.addView(message, new LinearLayout.LayoutParams(-1, dp(56)));
-        new AlertDialog.Builder(this)
-            .setTitle("Guest keyboard")
-            .setView(root)
-            .setNegativeButton("Close", null)
-            .setPositiveButton("Send", (dialog, which) -> {
-                RfbClient c = client;
-                if (c != null) c.sendText(message.getText().toString());
-                else Toast.makeText(this, "No display connected", Toast.LENGTH_SHORT).show();
-            })
-            .show();
-    }
-
-    private Button smallButton(String label) {
-        Button button = new Button(this);
-        button.setAllCaps(false);
-        button.setTextSize(12);
-        button.setText(label);
-        button.setTextColor(FOREGROUND);
-        button.setMinWidth(0);
-        button.setMinimumWidth(0);
-        button.setMinHeight(0);
-        button.setMinimumHeight(0);
-        button.setBackground(round(0xFF282B32, 10, 0, 0));
-        return button;
-    }
-
     private GradientDrawable round(int fill, int radius, int strokeColor, int strokeDp) {
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(fill);
@@ -332,11 +251,6 @@ public class ViewerActivity extends Activity {
         view.setTextSize(sp);
         if (bold) view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         return view;
-    }
-
-    private void press(int key) {
-        RfbClient c = client;
-        if (c != null) c.sendKey(key);
     }
 
     private void connect() {
@@ -563,6 +477,7 @@ public class ViewerActivity extends Activity {
                         getParent().requestDisallowInterceptTouchEvent(true);
                         lastGuestX = coordX(event.getX(), dst, framebuffer.getWidth());
                         lastGuestY = coordY(event.getY(), dst, framebuffer.getHeight());
+                        // Native Android gestures, without a visible mouse or virtual keyboard.
                         // Holding the primary RFB button maps tap, long-press and
                         // drag/swipe to guests that support mouse/tablet input.
                         pressed = true;
@@ -779,32 +694,6 @@ public class ViewerActivity extends Activity {
                     out.flush();
                 } catch (IOException e) { close(); }
             }
-        }
-
-        void sendKey(int sym) {
-            synchronized (outputLock) {
-                if (out == null || !active) return;
-                try {
-                    keyEvent(true, sym);
-                    keyEvent(false, sym);
-                    out.flush();
-                } catch (IOException e) { close(); }
-            }
-        }
-
-        void sendText(String text) {
-            if (text.length() > 2048) text = text.substring(0, 2048);
-            for (int i = 0; i < text.length();) {
-                int code = text.codePointAt(i); i += Character.charCount(code);
-                if (code == '\n') sendKey(0xFF0D);
-                else if (code <= 0xFF) sendKey(code);
-                else sendKey(0x01000000 | code);
-            }
-        }
-
-        private void keyEvent(boolean down, int sym) throws IOException {
-            out.writeByte(4); out.writeByte(down ? 1 : 0);
-            out.writeShort(0); out.writeInt(sym);
         }
 
         void close() {

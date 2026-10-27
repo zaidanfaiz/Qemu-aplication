@@ -44,25 +44,23 @@ Antarmuka menggunakan Android native Java. Emulator QEMU dikompilasi untuk **hos
 
 </details>
 
-## Kontrol touchscreen Android
+## Kontrol touchscreen tanpa keyboard virtual
 
-Viewer mendukung **tap**, **tekan-tahan**, dan **swipe/drag** langsung pada area framebuffer. Input dikirim lewat RFB PointerEvent dan diterima QEMU melalui perangkat pointer absolut **USB tablet** untuk mesin PC x86_64. **Geser dua jari** pada layar untuk mengirim pulsa scroll (wheel RFB), bukan melakukan drag/klik tanpa sengaja.
+Simulator dibuat khusus untuk **interaksi layar sentuh HP**, bukan remote desktop. Tidak ada lagi panel keyboard, tombol Esc/Tab/Enter, tombol panah, atau menu `Keyboard & send text` pada tampilan VM.
 
-- Tap = sentuhan yang diterjemahkan menjadi satu klik perangkat virtual.
-- Tekan-tahan = tombol utama ditahan sampai jari dilepaskan.
-- Swipe = pergerakan pointer dengan tombol utama tetap ditekan.
-- Dua jari = scroll vertikal atau horizontal melalui RFB.
-- Default: input **satu pointer guest** lewat VNC/USB tablet, sehingga kompatibel dengan lebih banyak ISO x86_64. Dua jari adalah **emulasi scroll**, bukan multitouch iOS.
-- Opsional: **⋯ → Guest multitouch (experimental)** membuka koneksi QMP lokal dan mengirim event multi-kontak `mtt` (begin/data/update/end) ke perangkat `virtio-multitouch-pci`. Input Android dipetakan ke koordinat absolut QEMU **0..32767**, maksimal 11 slot. Saat QMP belum siap, satu gesture memakai fallback VNC.
-- Syarat: **guest OS harus punya driver virtio multitouch**. QMP berhasil menerima event belum membuktikan guest bisa membaca sentuhan. **ISO/guest iOS tidak otomatis mendukung touchscreen native**, dan gestur pinch hanya dapat diproses bila guest mendukung driver serta gesture dua jari.
+**Mode default (touch kompatibel):** satu jari untuk tap, tekan lama, swipe/drag; dua jari untuk scroll. Sentuhan Android dikonversi menjadi event pointer absolut melalui VNC dan `usb-tablet` (PC x86_64) atau perangkat tablet virtio (ARM64). Tidak ada kursor atau keyboard mengambang dalam UI simulator.
 
-### Uji kontrol sentuh
+**Mode tambahan:** lewat `⋯ → Multitouch (experimental)`, aplikasi mengirim beberapa titik sentuh langsung lewat QMP ke perangkat `virtio-multitouch-pci`. Mode ini tidak menjamin iOS atau Android guest menerima input; **driver multitouch yang kompatibel di dalam guest wajib ada**. Jika driver tidak ada, kembali ke `⋯ → Standard touch`.
 
-1. Install APK *Native Dependency Lab* terbaru (bukan APK UI-only).
-2. Buka VM x86_64 berbasis ISO. Tap menu installer lalu coba drag sebuah elemen dengan satu jari.
-3. Jika guest mendukung wheel, geser dua jari untuk scroll.
-4. Khusus guest dengan driver `virtio-multitouch`: buka menu **⋯ → Guest multitouch (experimental)** dan coba sentuhan dua jari. Jika tidak bereaksi, kembalikan ke **Switch to standard touch**.
-5. Kalau QEMU menolak `-device virtio-multitouch-pci` atau `usb-tablet`, salin **View QEMU log** dan laporkan. Perangkat virtualnya ada dalam QEMU 11.1.2 build yang diuji, tetapi belum ada konfirmasi boot guest pada semua ISO.
+Keyboard untuk mengetik, jika diperlukan, harus berasal dari sistem operasi **di dalam guest** (misalnya keyboard layar Android/iOS yang benar-benar boot), bukan dari tombol kontrol emulator. Pada fase BIOS/bootloader yang memerlukan input fisik, beberapa menu mungkin tidak dapat dikendalikan hanya dengan sentuhan.
+
+### Pengujian
+
+1. Pasang kandidat APK native terbaru sebagai pembaruan.
+2. Jalankan VM, sentuh langsung area layarnya untuk tap dan swipe.
+3. Pada guest dengan dukungan mouse/tablet, dua jari mengirim scroll.
+4. Uji mode multitouch hanya jika guest mendukung virtio input.
+5. Jika layar tidak merespons, cek `⋮ → View QEMU log` dari menu utama. Build berhasil bukan bukti iOS mampu boot atau mengenali perangkat touch.
 
 ## Tampilan simulator perangkat
 
@@ -71,7 +69,7 @@ Viewer tidak lagi memaksa posisi lanskap atau menampilkan bar tombol terminal. V
 - Bar atas: kembali ke daftar VM, status koneksi, dan menu **⋯**.
 - Mode default: **Device frame**, dengan bezel, area kamera, dan indikator gestur sebagai elemen visual.
 - **⋯ → Screen only** menyembunyikan bingkai untuk menguji gambar guest dalam area maksimal.
-- **⋯ → Keyboard & send text** membuka keyboard tambahan seperlunya; tidak memenuhi ruang layar secara permanen.
+- Kontrol memakai sentuhan langsung, **tanpa keyboard virtual tambahan** dari aplikasi emulator.
 - **⋯ → Reconnect display** mengulang koneksi localhost VNC tanpa menutup aplikasi.
 - Sentuhan pada framebuffer yang terlihat dikirim sebagai **pointer VNC tunggal**; huruf / keyboard dikirim sebagai tombol VNC. *Bukan* implementasi multitouch iOS.
 
