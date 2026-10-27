@@ -77,6 +77,21 @@ Workflow **[Native Dependency Integration Lab](https://github.com/zaidanfaiz/Qem
 
 **Perlu diperhatikan:** dependency closure di CI bukan bukti Android linker akan menerima seluruh library saat runtime. QEMU mungkin masih gagal start akibat linker namespace, path yang tertanam, opsi QEMU, maupun firmware. Gunakan untuk pengujian, bukan untuk data penting.
 
+## Perbaikan BIOS PC pada Android (27 Oktober 2026)
+
+Laporan uji perangkat menemukan bahwa QEMU native **berhasil dieksekusi**, tetapi berhenti dengan pesan:
+
+```text
+qemu: could not load PC BIOS 'bios-256k.bin'
+[QEMU EXIT STATUS] 1
+```
+
+Penyebabnya adalah daftar firmware dalam workflow APK yang hanya memasukkan `bios.bin`, bukan `bios-256k.bin` (SeaBIOS 256 KiB) yang dibutuhkan konfigurasi PC default QEMU 11.1.2.
+
+**Perbaikan sudah masuk ke source:** pipeline sekarang mewajibkan `bios-256k.bin` berukuran tepat **262144 byte**, memaketkan beberapa VGA ROM tambahan, dan memastikan keberadaannya dalam APK. Aplikasi juga memeriksa file BIOS/VGA sebelum menjalankan guest x86_64 dan menyimpan firmware hasil ekstraksi sehingga ROM besar tidak disalin ulang pada setiap boot.
+
+**Penting:** hanya APK hasil **Native Dependency Integration Lab yang lebih baru dari commit perbaikan** yang memiliki BIOS tersebut. APK sebelumnya masih akan gagal dengan pesan yang sama. Masalah BIOS teridentifikasi dan ditangani di kode; keberhasilan boot sistem operasi masih perlu diuji di perangkat.
+
 ## Pengujian aplikasi
 
 1. Instal **APK kandidat native** dari Native Dependency Lab. Untuk uji engine, jangan memakai APK CI reguler karena belum menyertakan QEMU.
