@@ -243,6 +243,23 @@ public class ViewerActivity extends Activity {
             key.setOnClickListener(v -> press(keyCode));
         }
 
+        // Boot menus still need arrow navigation. Keep these in the
+        // keyboard dialog, not as a permanent bar covering the simulator.
+        LinearLayout arrows = new LinearLayout(this);
+        arrows.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams arrowsParams = new LinearLayout.LayoutParams(-1, dp(46));
+        arrowsParams.topMargin = dp(9);
+        root.addView(arrows, arrowsParams);
+        String[] arrowNames = {"←", "↑", "↓", "→"};
+        int[] arrowCodes = {0xFF51, 0xFF52, 0xFF54, 0xFF53};
+        for (int i = 0; i < arrowNames.length; i++) {
+            final int code = arrowCodes[i];
+            Button button = smallButton(arrowNames[i]);
+            LinearLayout.LayoutParams kp = new LinearLayout.LayoutParams(0, dp(42), 1);
+            kp.rightMargin = i < arrowNames.length - 1 ? dp(6) : 0;
+            arrows.addView(button, kp);
+            button.setOnClickListener(v -> press(code));
+        }
         EditText message = new EditText(this);
         message.setSingleLine(true);
         message.setTextColor(FOREGROUND);
