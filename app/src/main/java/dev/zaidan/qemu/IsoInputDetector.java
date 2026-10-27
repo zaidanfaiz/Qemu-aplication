@@ -143,9 +143,10 @@ final class IsoInputDetector {
                 vol.contains("phoenix") || cfg.contains("phoenix os");
         boolean win = vol.contains("windows") || all.contains("/sources/boot.wim") ||
                 all.contains("/bootmgr");
-        boolean bootMenu = all.contains("grub.cfg") || all.contains("isolinux.cfg") ||
-                all.contains("syslinux.cfg") || cfg.contains("menuentry ") ||
-                cfg.contains("menu label ") || cfg.contains("ui menu.c32");
+        boolean bootloader = all.contains("grub.cfg") || all.contains("isolinux.cfg") ||
+                all.contains("syslinux.cfg");
+        boolean bootMenu = cfg.contains("menuentry ") || cfg.contains("menu label ") ||
+                cfg.contains("ui menu.c32") || cfg.contains("label ");
         boolean installMenu = cfg.contains("install=1") || cfg.contains("installation") ||
                 cfg.contains("install android") || cfg.contains("install bliss");
         boolean live = cfg.contains("live cd") || cfg.contains("run android") ||
@@ -158,7 +159,8 @@ final class IsoInputDetector {
                 "ISO lain (belum dikenali)";
         String boot = bootMenu ? (auto ? "Kemungkinan perlu untuk memilih menu; ada timer otomatis" :
                                   "Kemungkinan perlu tombol navigasi GRUB/ISOLINUX") :
-                "Tidak diketahui (menu boot tak terdeteksi)";
+                (bootloader ? "Bootloader terdeteksi, kebutuhan tombol tidak diketahui" :
+                             "Tidak diketahui (menu boot tak terdeteksi)");
         String installer = (android && installMenu) ?
                 "YA — installer Android-x86 berbasis pilihan teks" :
                 win ? "Kemungkinan perlu navigasi installer" :
