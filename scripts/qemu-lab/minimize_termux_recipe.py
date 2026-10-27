@@ -23,10 +23,11 @@ features_to_disable = [
 # QEMU's Termux recipe forces --audio-drv-list=pa, which must not conflict
 # with --disable-pa. QEMU keeps the generic no-audio backend.
 features_to_disable.extend(["alsa", "pa", "jack", "libdw", "zstd"])
-forced_audio = "\t\t--audio-drv-list=pa \\\n"
-if forced_audio not in original:
-    sys.exit("Termux forced-audio line changed; refusing non-reproducible build")
-modified = original.replace(forced_audio, "")
+audio_lines = [line for line in original.splitlines(keepends=True)
+               if "--audio-drv-list=pa" in line]
+if len(audio_lines) != 1:
+    sys.exit("Forced PulseAudio configure flag changed; recipe needs re-audit")
+modified = original.replace(audio_lines[0], "")
 for feature in features_to_disable:
     previous = f"--enable-{feature}"
     if previous not in modified:
