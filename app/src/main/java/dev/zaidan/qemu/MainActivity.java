@@ -136,7 +136,8 @@ public class MainActivity extends Activity {
             if ("rom".equals(bootMode)) {
                 mediaText.setText("ROM disk · " + prefs.getString("romName", "Not selected"));
             } else {
-                mediaText.setText("Installer ISO · " + prefs.getString("isoName", "Not selected"));
+                mediaText.setText("installed".equals(bootMode) ? "Installed disk · machine.img (ISO ejected)" :
+                        "Installer ISO · " + prefs.getString("isoName", "Not selected"));
             }
         }
     }
@@ -189,11 +190,13 @@ public class MainActivity extends Activity {
             return;
         }
         String[] choices = {"Install from ISO (uses machine.img)",
+                "Boot installed VM disk (eject ISO)",
                 "Boot imported ROM disk (separate image)"};
-        boolean fromRom = "rom".equals(prefs.getString("bootMode", "iso"));
+        String current = prefs.getString("bootMode", "iso");
+        int selectedMode = "rom".equals(current) ? 2 : "installed".equals(current) ? 1 : 0;
         new AlertDialog.Builder(this).setTitle("Boot source")
-                .setSingleChoiceItems(choices, fromRom ? 1 : 0, (dialog, selected) -> {
-                    if (selected == 1) {
+                .setSingleChoiceItems(choices, selectedMode, (dialog, selected) -> {
+                    if (selected == 2) {
                         File rom = new File(prefs.getString("romPath", ""));
                         if (!rom.isFile()) {
                             message("Import a full Android-x86 PC ROM disk first.");
@@ -202,7 +205,11 @@ public class MainActivity extends Activity {
                         prefs.edit().putString("bootMode", "rom")
                                 .putString("arch", "x86_64").apply();
                     } else {
-                        prefs.edit().putString("bootMode", "iso")
+                        if (selected == 1 && !disk().isFile()) {
+                            message("Create a virtual disk and install the OS first.");
+                            return;
+                        }
+                        prefs.edit().putString("bootMode", selected == 1 ? "installed" : "iso")
                                 .putString("arch", "x86_64").apply();
                     }
                     dialog.dismiss();
