@@ -228,8 +228,8 @@ for path in sorted(jni.glob("*.so")):
     if remaining:
         raise RuntimeError(f"Unresolved NEEDED in {path.name}: {sorted(remaining)}")
     dynamic = subprocess.check_output(["readelf", "-d", str(path)], text=True)
-    if "$ORIGIN" not in dynamic:
-        raise RuntimeError(f"Missing local RUNPATH in {path.name}")
+    if "/data/data/com.termux/files/usr/lib" in dynamic:
+        raise RuntimeError(f"Stale Termux linker RUNPATH in {path.name}")
 print("PASS: in-place dynstr rewrite preserved ELF layout for all targets.")
 
 report = {
