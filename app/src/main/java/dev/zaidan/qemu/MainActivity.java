@@ -93,7 +93,7 @@ public class MainActivity extends Activity {
         mediaText = text("No boot image selected", 13, SECONDARY, false);
         card.addView(mediaText);
         card.addView(gap(12));
-        TextView hint = text("Tap machine to run  ·  Configure with ⋮", 12, 0xFF83AACF, false);
+        TextView hint = text("Tap to boot in device preview  ·  ⋮ Configure", 12, 0xFF83AACF, false);
         card.addView(hint);
         root.addView(card);
         card.setOnClickListener(v -> launchFromCard());
@@ -287,8 +287,10 @@ public class MainActivity extends Activity {
                     .setNegativeButton("Cancel", null).show();
             return;
         }
+        // Open the device-style viewer immediately; it will retry local VNC
+        // while native QEMU initializes and extracts bundled firmware.
         NativeVmService.start(this);
-        message("Native QEMU launch requested; check engine status.");
+        startActivity(new Intent(this, ViewerActivity.class));
     }
 
     private void showLog() {
