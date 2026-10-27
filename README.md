@@ -20,7 +20,7 @@ Qemu Application adalah VM manager Android yang dirancang menjalankan QEMU **lan
 
 Antarmuka menggunakan Android native Java. Emulator QEMU dikompilasi untuk **host Android ARM64** menggunakan toolchain Android/Bionic. Guest yang ditargetkan adalah **x86_64** dan **AArch64** melalui software emulation (TCG), bukan hardware virtualization/KVM.
 
-**Kondisi saat ini:** `main` adalah proyek riset native. CI reguler membangun aplikasi tanpa engine; CI **Native Dependency Integration Lab** membangun APK kandidat dengan engine. Kedua jalur tetap terpisah sampai lulus uji perangkat.
+**Kondisi saat ini:** `main` adalah proyek riset native. CI reguler membangun aplikasi tanpa engine; CI **Native Dependency Integration Lab** membangun APK kandidat dengan engine. Keduanya lolos kompilasi untuk versi 1.0.0 dual-control, tetapi input keyboard dan boot guest masih perlu diverifikasi pada perangkat.
 
 ## Perkembangan
 
@@ -63,7 +63,7 @@ Menu **⋮ → Import Android ROM (ISO/disk)** bisa memilih image Android PC/VM 
 4. Jalankan VM. ISO bisa digunakan untuk *live boot*, atau pilih menu instalasi di dalam guest.
 5. Setelah berhasil menginstal OS ke disk, matikan VM dan pilih **Boot source → Boot installed VM disk (eject ISO)**. Mode ini melepas ISO dan boot dari `machine.img`.
 
-**Keterbatasan:** installer Android-x86 biasanya berupa menu teks/bootloader yang membutuhkan tombol arah/Enter. Viewer ini sengaja **touch-only**; beberapa installer tidak bisa dioperasikan dengan sentuhan saja. Fitur import dan boot belum membuktikan proses instalasi bisa dituntaskan tanpa keyboard.
+**Untuk installer Android-x86:** pilih **Computer · Keyboard** sebelum memulai VM. Menu bootloader yang membutuhkan tombol panah/Enter kini memiliki tombol PC dan input melalui keyboard sistem Android. Pilih **Phone · Touch** setelah guest sudah mendukung touch. Respons keyboard dan instalasi OS tetap perlu diuji pada perangkat fisik.
 
 ### Percobaan 2: image ROM disk yang sudah terpasang
 
@@ -99,11 +99,11 @@ Phone mode shows only the guest's display in a portrait device shell. No emulato
 
 ## Tampilan simulator perangkat
 
-Viewer tidak lagi memaksa posisi lanskap atau menampilkan bar tombol terminal. Versi UI terbaru menampilkan **frame perangkat bergaya iPhone dalam posisi potret**, dengan display VNC di dalamnya dan rasio asli framebuffer tetap terjaga.
+Viewer kini otomatis menyesuaikan orientasi berdasarkan mode yang dipilih. **Phone** membuka frame perangkat potret, sedangkan **Computer** menampilkan layar lebar tanpa bezel dan toolbar input keyboard PC. Framebuffer VNC selalu memakai rasio aspek aslinya.
 
 - Bar atas: kembali ke daftar VM, status koneksi, dan menu **⋯**.
-- Mode default: **Device frame**, dengan bezel, area kamera, dan indikator gestur sebagai elemen visual.
-- **⋯ → Screen only** menyembunyikan bingkai untuk menguji gambar guest dalam area maksimal.
+- **Phone:** device frame dengan bezel, area kamera, dan indikator gestur sebagai elemen visual.
+- **⋯ → Screen only** menyembunyikan bingkai dalam mode Phone. Mode Computer selalu membuka layar tanpa bezel.
 - Kontrol bisa dipilih antara layar sentuh Phone atau keyboard sistem Android dalam mode Computer.
 - **⋯ → Reconnect display** mengulang koneksi localhost VNC tanpa menutup aplikasi.
 - Sentuhan pada framebuffer yang terlihat dikirim sebagai **pointer VNC tunggal**; huruf / keyboard dikirim sebagai tombol VNC. *Bukan* implementasi multitouch iOS.
