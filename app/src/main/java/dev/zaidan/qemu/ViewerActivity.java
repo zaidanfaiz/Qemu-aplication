@@ -1,6 +1,8 @@
 package dev.zaidan.qemu;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.pm.ActivityInfo;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -8,17 +10,19 @@ import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.view.Gravity;
-import android.widget.HorizontalScrollView;
-import android.widget.FrameLayout;
 import android.os.Bundle;
 import android.text.InputType;
+import android.text.TextUtils;
+import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.PopupMenu;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -27,163 +31,267 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 
+/**
+ * Device-style local VNC viewer for the iOS-emulator research UI.
+ *
+ * The chrome is a device preview; it does not imply the guest is iOS.
+ * RFB 3.3/3.8, RAW encoding and single-pointer input are unchanged.
+ * The device display preserves the guest framebuffer aspect ratio.
+ */
 public class ViewerActivity extends Activity {
+    private static final int BACKGROUND = 0xFF0C0D10;
+    private static final int SURFACE = 0xFF17191E;
+    private static final int FOREGROUND = 0xFFF2F2F4;
+    private static final int SECONDARY = 0xFF8D919B;
+    private static final float PHONE_RATIO = 0.476f;
+
     private final Object framebufferLock = new Object();
     private volatile RfbClient client;
     private Bitmap framebuffer;
     private ScreenView screen;
-    private TextView status;
-
-    private static final int BG = 0xFF101216, BAR = 0xFF191C22;
-    private static final int FG = 0xFFE7EAF0, MUTED = 0xFF9CA5B3;
-    private LinearLayout body;
-    private TextView emptyHeading, emptySubtitle;
+    private FrameLayout stage;
+    private FrameLayout phone;
+    private FrameLayout content;
     private LinearLayout emptyLayer;
+    private TextView emptyHeading;
+    private TextView emptySubtitle;
+    private TextView status;
+    private TextView footer;
+    private View island;
+    private View homeIndicator;
+    private boolean deviceFrame = true;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().setStatusBarColor(BG);
-        getWindow().setNavigationBarColor(BG);
+        deviceFrame = getPreferences(MODE_PRIVATE).getBoolean("deviceFrame", true);
+        getWindow().setStatusBarColor(BACKGROUND);
+        getWindow().setNavigationBarColor(BACKGROUND);
         getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
 
-        body = new LinearLayout(this);
-        body.setOrientation(LinearLayout.VERTICAL);
-        body.setBackgroundColor(BG);
-        body.setOnApplyWindowInsetsListener((view, insets) -> {
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setBackgroundColor(BACKGROUND);
+        page.setOnApplyWindowInsetsListener((view, insets) -> {
             view.setPadding(0, insets.getSystemWindowInsetTop(),
-                0, insets.getSystemWindowInsetBottom());
+                    0, insets.getSystemWindowInsetBottom());
             return insets;
         });
-        setContentView(body);
+        setContentView(page);
 
-        LinearLayout header = new LinearLayout(this);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(12), 0, dp(13), 0);
-        header.setBackgroundColor(BAR);
-        body.addView(header, new LinearLayout.LayoutParams(-1, dp(56)));
+        LinearLayout toolbar = new LinearLayout(this);
+        toolbar.setGravity(Gravity.CENTER_VERTICAL);
+        toolbar.setPadding(dp(14), 0, dp(14), 0);
+        page.addView(toolbar, new LinearLayout.LayoutParams(-1, dp(59)));
 
-        Button back = action("‹  Machines", false, () -> finish());
-        header.addView(back, new LinearLayout.LayoutParams(dp(122), dp(40)));
+        TextView back = text("‹", 31, FOREGROUND, false);
+        back.setContentDescription("Return to machines");
+        back.setGravity(Gravity.CENTER);
+        toolbar.addView(back, new LinearLayout.LayoutParams(dp(38), dp(48)));
+        back.setOnClickListener(v -> finish());
 
-        status = new TextView(this);
-        status.setText("Connecting to local display…");
-        status.setTextColor(MUTED);
-        status.setTextSize(13);
+        LinearLayout headings = new LinearLayout(this);
+        headings.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(0, -2, 1);
+        headingParams.leftMargin = dp(10);
+        toolbar.addView(headings, headingParams);
+        headings.addView(text("Device preview", 17, FOREGROUND, true));
+        status = text("Connecting to local VM…", 11, SECONDARY, false);
         status.setMaxLines(1);
-        status.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        status.setGravity(Gravity.CENTER_VERTICAL);
-        status.setPadding(dp(13), 0, dp(10), 0);
-        header.addView(status, new LinearLayout.LayoutParams(0, dp(43), 1));
+        status.setEllipsize(TextUtils.TruncateAt.END);
+        headings.addView(status);
 
-        Button reconnect = action("Retry", true, this::connect);
-        header.addView(reconnect, new LinearLayout.LayoutParams(dp(82), dp(40)));
+        TextView more = text("⋯", 28, FOREGROUND, true);
+        more.setContentDescription("Simulator options: keyboard, reconnect, screen mode");
+        more.setGravity(Gravity.CENTER);
+        toolbar.addView(more, new LinearLayout.LayoutParams(dp(45), dp(45)));
+        more.setOnClickListener(v -> openOptions(more));
 
-        FrameLayout display = new FrameLayout(this);
-        display.setBackgroundColor(0xFF070809);
-        body.addView(display, new LinearLayout.LayoutParams(-1, 0, 1));
+        stage = new FrameLayout(this);
+        stage.setBackgroundColor(BACKGROUND);
+        page.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        phone = new FrameLayout(this);
+        stage.addView(phone);
+        // Remeasure on rotation and on keyboard appearance. Prevent a device
+        // whose lower frame is offscreen on short phones.
+        stage.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, oright, ob) -> {
+            if (r - l != oright - ol || b - t != ob - ot) sizeDevice();
+        });
+
+        content = new FrameLayout(this);
+        content.setBackground(round(0xFF000000, 35, 0, 0));
+        content.setClipToOutline(true);
+        FrameLayout.LayoutParams glass = new FrameLayout.LayoutParams(-1, -1);
+        glass.setMargins(dp(6), dp(6), dp(6), dp(6));
+        phone.addView(content, glass);
+
         screen = new ScreenView();
-        display.addView(screen, new FrameLayout.LayoutParams(-1, -1));
+        content.addView(screen, new FrameLayout.LayoutParams(-1, -1));
 
-        LinearLayout empty = new LinearLayout(this);
-        emptyLayer = empty;
-        empty.setOrientation(LinearLayout.VERTICAL);
-        empty.setGravity(Gravity.CENTER);
-        empty.setPadding(dp(16), dp(8), dp(16), dp(8));
-        FrameLayout.LayoutParams emptyPos =
-             new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER);
-        display.addView(empty, emptyPos);
-        emptyHeading = new TextView(this);
-        emptyHeading.setText("Display not connected");
-        emptyHeading.setTextSize(19);
-        emptyHeading.setTextColor(FG);
-        emptyHeading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        emptyLayer = new LinearLayout(this);
+        emptyLayer.setOrientation(LinearLayout.VERTICAL);
+        emptyLayer.setGravity(Gravity.CENTER);
+        emptyLayer.setPadding(dp(20), dp(16), dp(20), dp(16));
+        emptyLayer.setBackgroundColor(0xFF090A0D);
+        content.addView(emptyLayer, new FrameLayout.LayoutParams(-1, -1));
+        TextView emptyGlyph = text("◯", 28, 0xFF5E6370, false);
+        emptyGlyph.setGravity(Gravity.CENTER);
+        emptyLayer.addView(emptyGlyph);
+        View gap = new View(this);
+        emptyLayer.addView(gap, new LinearLayout.LayoutParams(1, dp(12)));
+        emptyHeading = text("Waiting for display", 17, FOREGROUND, true);
         emptyHeading.setGravity(Gravity.CENTER);
-        empty.addView(emptyHeading);
-        emptySubtitle = new TextView(this);
-        emptySubtitle.setText("Start a virtual machine from Machines, then retry.");
-        emptySubtitle.setTextSize(13);
-        emptySubtitle.setTextColor(MUTED);
-        emptySubtitle.setGravity(Gravity.CENTER);
+        emptyLayer.addView(emptyHeading);
+        emptySubtitle = text("Start a VM in Machines.\nThe display will appear here.", 12, SECONDARY, false);
         emptySubtitle.setPadding(0, dp(7), 0, 0);
-        empty.addView(emptySubtitle);
+        emptySubtitle.setGravity(Gravity.CENTER);
+        emptyLayer.addView(emptySubtitle);
 
-        HorizontalScrollView keyScroll = new HorizontalScrollView(this);
-        keyScroll.setHorizontalScrollBarEnabled(false);
-        keyScroll.setFillViewport(true);
-        keyScroll.setBackgroundColor(BAR);
-        LinearLayout keys = new LinearLayout(this);
-        keys.setGravity(Gravity.CENTER_VERTICAL);
-        keys.setPadding(dp(9), dp(3), dp(9), dp(3));
-        for (String label : new String[]{"Esc", "Tab", "Enter", "⌫", "←", "↑", "↓", "→"}) {
-            final int code;
-            switch (label) {
-                case "Esc": code = 0xFF1B; break;
-                case "Tab": code = 0xFF09; break;
-                case "Enter": code = 0xFF0D; break;
-                case "⌫": code = 0xFF08; break;
-                case "←": code = 0xFF51; break;
-                case "↑": code = 0xFF52; break;
-                case "↓": code = 0xFF54; break;
-                default: code = 0xFF53; break;
-            }
-            Button key = action(label, false, () -> press(code));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                label.equals("Enter") ? dp(78) : dp(58), dp(40));
-            lp.rightMargin = dp(7);
-            keys.addView(key, lp);
-        }
-        keyScroll.addView(keys);
-        body.addView(keyScroll, new LinearLayout.LayoutParams(-1, dp(50)));
+        island = new View(this);
+        island.setBackground(round(0xFF000000, 18, 0, 0));
+        FrameLayout.LayoutParams islandParams = new FrameLayout.LayoutParams(dp(108), dp(29),
+                Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        islandParams.topMargin = dp(15);
+        phone.addView(island, islandParams);
+        island.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
 
-        LinearLayout sendRow = new LinearLayout(this);
-        sendRow.setGravity(Gravity.CENTER_VERTICAL);
-        sendRow.setBackgroundColor(BAR);
-        sendRow.setPadding(dp(12), dp(2), dp(12), dp(7));
-        EditText input = new EditText(this);
-        input.setTextColor(FG);
-        input.setHintTextColor(MUTED);
-        input.setTextSize(14);
-        input.setHint("Type a command or text…");
-        input.setSingleLine(true);
-        input.setInputType(InputType.TYPE_CLASS_TEXT);
-        input.setPadding(dp(12), 0, dp(12), 0);
-        input.setBackground(shape(0xFF242830, 10));
-        LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(0, dp(42), 1);
-        inputLp.rightMargin = dp(10);
-        sendRow.addView(input, inputLp);
-        sendRow.addView(action("Send", true, () -> {
-            RfbClient c = client;
-            if (c != null) c.sendText(input.getText().toString());
-            input.setText("");
-        }), new LinearLayout.LayoutParams(dp(76), dp(42)));
-        body.addView(sendRow, new LinearLayout.LayoutParams(-1, dp(52)));
+        homeIndicator = new View(this);
+        homeIndicator.setBackground(round(0xFFCFD0D2, 6, 0, 0));
+        FrameLayout.LayoutParams homeParams = new FrameLayout.LayoutParams(dp(108), dp(4),
+                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        homeParams.bottomMargin = dp(17);
+        phone.addView(homeIndicator, homeParams);
+        homeIndicator.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+
+        footer = text("LOCAL DISPLAY  ·  SINGLE-POINTER INPUT", 10, SECONDARY, false);
+        footer.setGravity(Gravity.CENTER);
+        footer.setPadding(dp(12), 0, dp(12), dp(5));
+        page.addView(footer, new LinearLayout.LayoutParams(-1, dp(33)));
+
+        applyDeviceStyle();
         connect();
     }
 
-    private GradientDrawable shape(int color, int radius) {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(color);
-        d.setCornerRadius(dp(radius));
-        return d;
+    private void sizeDevice() {
+        if (stage == null || stage.getWidth() == 0 || stage.getHeight() == 0) return;
+        int availW = Math.max(dp(1), stage.getWidth() - dp(34));
+        int availH = Math.max(dp(1), stage.getHeight() - dp(14));
+        int width = deviceFrame ? Math.min(availW, Math.round(availH * PHONE_RATIO)) : availW;
+        int height = deviceFrame ? Math.min(availH, Math.round(width / PHONE_RATIO)) : availH;
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(width, height, Gravity.CENTER);
+        phone.setLayoutParams(params);
     }
 
-    private Button action(String text, boolean primary, Runnable click) {
-        Button b = new Button(this);
-        b.setAllCaps(false);
-        b.setText(text);
-        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        b.setTextColor(primary ? 0xFF111317 : FG);
-        b.setTextSize(13);
-        b.setMinHeight(0);
-        b.setMinimumHeight(0);
-        b.setMinWidth(0);
-        b.setMinimumWidth(0);
-        b.setPadding(dp(7), 0, dp(7), 0);
-        b.setBackground(shape(primary ? 0xFFC2CCD9 : 0xFF303641, 10));
-        b.setOnClickListener(v -> click.run());
-        return b;
+    private void applyDeviceStyle() {
+        phone.setBackground(round(deviceFrame ? 0xFF272A31 : 0xFF000000,
+                deviceFrame ? 44 : 5, deviceFrame ? 0xFF5A5B63 : 0, 1));
+        phone.setClipToOutline(deviceFrame);
+        content.setBackground(round(0xFF000000, deviceFrame ? 38 : 2, 0, 0));
+        content.setClipToOutline(deviceFrame);
+        FrameLayout.LayoutParams inner = (FrameLayout.LayoutParams) content.getLayoutParams();
+        int edge = deviceFrame ? dp(6) : 0;
+        inner.setMargins(edge, edge, edge, edge);
+        content.setLayoutParams(inner);
+        island.setVisibility(deviceFrame ? View.VISIBLE : View.GONE);
+        homeIndicator.setVisibility(deviceFrame ? View.VISIBLE : View.GONE);
+        footer.setText(deviceFrame ? "DEVICE FRAME  ·  LOCAL VNC" : "SCREEN ONLY  ·  LOCAL VNC");
+        sizeDevice();
+    }
+
+    private void openOptions(View anchor) {
+        PopupMenu menu = new PopupMenu(this, anchor);
+        menu.getMenu().add(0, 1, 0, "Reconnect display");
+        menu.getMenu().add(0, 2, 1, "Keyboard & send text");
+        menu.getMenu().add(0, 3, 2, deviceFrame ? "Screen only" : "Show device frame");
+        menu.getMenu().add(0, 4, 3, "Back to machines");
+        menu.setOnMenuItemClickListener(item -> {
+            switch(item.getItemId()) {
+                case 1: connect(); return true;
+                case 2: openKeyboard(); return true;
+                case 3:
+                    deviceFrame = !deviceFrame;
+                    getPreferences(MODE_PRIVATE).edit().putBoolean("deviceFrame", deviceFrame).apply();
+                    applyDeviceStyle();
+                    return true;
+                case 4: finish(); return true;
+                default: return false;
+            }
+        });
+        menu.show();
+    }
+
+    private void openKeyboard() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(18), dp(8), dp(18), dp(8));
+        TextView note = text("Sends keys to the guest through VNC (single-key input).", 12, SECONDARY, false);
+        root.addView(note);
+        root.addView(new View(this), new LinearLayout.LayoutParams(1, dp(10)));
+
+        LinearLayout keys = new LinearLayout(this);
+        keys.setGravity(Gravity.CENTER);
+        root.addView(keys);
+        String[] names = {"Esc", "Tab", "Enter", "⌫"};
+        int[] codes = {0xFF1B, 0xFF09, 0xFF0D, 0xFF08};
+        for(int i = 0; i < names.length; ++i) {
+            final int keyCode = codes[i];
+            Button key = smallButton(names[i]);
+            LinearLayout.LayoutParams kp = new LinearLayout.LayoutParams(0, dp(44), 1);
+            kp.rightMargin = i < 3 ? dp(6) : 0;
+            keys.addView(key, kp);
+            key.setOnClickListener(v -> press(keyCode));
+        }
+
+        EditText message = new EditText(this);
+        message.setSingleLine(true);
+        message.setTextColor(FOREGROUND);
+        message.setHintTextColor(SECONDARY);
+        message.setTextSize(14);
+        message.setHint("Type text…");
+        message.setInputType(InputType.TYPE_CLASS_TEXT);
+        root.addView(message, new LinearLayout.LayoutParams(-1, dp(56)));
+        new AlertDialog.Builder(this)
+            .setTitle("Guest keyboard")
+            .setView(root)
+            .setNegativeButton("Close", null)
+            .setPositiveButton("Send", (dialog, which) -> {
+                RfbClient c = client;
+                if (c != null) c.sendText(message.getText().toString());
+                else Toast.makeText(this, "No display connected", Toast.LENGTH_SHORT).show();
+            })
+            .show();
+    }
+
+    private Button smallButton(String label) {
+        Button button = new Button(this);
+        button.setAllCaps(false);
+        button.setTextSize(12);
+        button.setText(label);
+        button.setTextColor(FOREGROUND);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setMinHeight(0);
+        button.setMinimumHeight(0);
+        button.setBackground(round(0xFF282B32, 10, 0, 0));
+        return button;
+    }
+
+    private GradientDrawable round(int fill, int radius, int strokeColor, int strokeDp) {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(fill);
+        bg.setCornerRadius(dp(radius));
+        if (strokeDp > 0) bg.setStroke(dp(strokeDp), strokeColor);
+        return bg;
+    }
+
+    private TextView text(String content, int sp, int color, boolean bold) {
+        TextView view = new TextView(this);
+        view.setText(content);
+        view.setTextColor(color);
+        view.setTextSize(sp);
+        if (bold) view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        return view;
     }
 
     private void press(int key) {
@@ -193,71 +301,85 @@ public class ViewerActivity extends Activity {
 
     private void connect() {
         if (client != null) client.close();
-        synchronized (framebufferLock) { framebuffer = null; }
-        if (emptyLayer != null) emptyLayer.setVisibility(View.VISIBLE);
+        synchronized (framebufferLock) {
+            if (framebuffer != null) {
+                framebuffer.recycle();
+                framebuffer = null;
+            }
+        }
+        if (emptyLayer != null) {
+            emptyLayer.setVisibility(View.VISIBLE);
+            emptyHeading.setText("Waiting for display");
+            emptySubtitle.setText("Start a VM in Machines.\nThe display will appear here.");
+        }
         screen.invalidate();
-        status.setText("VNC • Connecting to 127.0.0.1:5901");
+        status.setText("Connecting to local VM…");
         RfbClient next = new RfbClient();
         client = next;
         new Thread(next, "qemu-vnc-client").start();
     }
 
-    private void updateStatus(String text, RfbClient origin) {
-        runOnUiThread(() -> { if (client == origin && !isFinishing()) status.setText(text); });
+    private void updateStatus(String label, RfbClient origin) {
+        runOnUiThread(() -> {
+            if(client == origin && !isFinishing()) status.setText(label);
+        });
     }
 
     @Override protected void onDestroy() {
-        if (client != null) client.close();
+        if(client != null) client.close();
         super.onDestroy();
     }
 
     private int dp(int value) {
-        return (int)(value * getResources().getDisplayMetrics().density + .5f);
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private class ScreenView extends View {
-        private final Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
-        private final Paint help = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        private boolean dragging = false;
+
         ScreenView() {
             super(ViewerActivity.this);
-            help.setColor(0xFF91A5C7);
-            help.setTextSize(dp(17));
             setBackgroundColor(Color.BLACK);
         }
 
         private RectF fitted(int w, int h) {
-            float scale = Math.min(getWidth() / (float) w, getHeight() / (float) h);
-            float x = (getWidth() - w * scale) / 2f;
-            float y = (getHeight() - h * scale) / 2f;
-            return new RectF(x, y, x + w * scale, y + h * scale);
+            float scale = Math.min(getWidth() / (float)w, getHeight() / (float)h);
+            float left = (getWidth() - w * scale) / 2f;
+            float top = (getHeight() - h * scale) / 2f;
+            return new RectF(left, top, left + w * scale, top + h * scale);
         }
 
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             synchronized (framebufferLock) {
-                if (framebuffer != null) {
-                    canvas.drawBitmap(framebuffer, null, fitted(framebuffer.getWidth(), framebuffer.getHeight()), paint);
-                }
+                if(framebuffer != null && !framebuffer.isRecycled())
+                    canvas.drawBitmap(framebuffer, null,
+                            fitted(framebuffer.getWidth(), framebuffer.getHeight()), bitmapPaint);
             }
         }
 
         @Override public boolean onTouchEvent(MotionEvent event) {
-            if (event.getActionMasked() != MotionEvent.ACTION_DOWN &&
-                event.getActionMasked() != MotionEvent.ACTION_MOVE &&
-                event.getActionMasked() != MotionEvent.ACTION_UP &&
-                event.getActionMasked() != MotionEvent.ACTION_CANCEL) return false;
+            final int action = event.getActionMasked();
+            if(action != MotionEvent.ACTION_DOWN && action != MotionEvent.ACTION_MOVE &&
+               action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL) return false;
             RfbClient c = client;
-            if (c == null) return true;
+            if(c == null) return true;
             synchronized (framebufferLock) {
-                if (framebuffer == null) return true;
+                if(framebuffer == null || framebuffer.isRecycled()) return true;
                 RectF dst = fitted(framebuffer.getWidth(), framebuffer.getHeight());
-                int x = Math.max(0, Math.min(framebuffer.getWidth() - 1,
-                    (int)((event.getX() - dst.left) / dst.width() * framebuffer.getWidth())));
-                int y = Math.max(0, Math.min(framebuffer.getHeight() - 1,
-                    (int)((event.getY() - dst.top) / dst.height() * framebuffer.getHeight())));
-                int action = event.getActionMasked();
+                if(action == MotionEvent.ACTION_DOWN) {
+                    dragging = dst.contains(event.getX(), event.getY());
+                    if(!dragging) return true;
+                }
+                if(!dragging) return true;
+                int x = Math.max(0, Math.min(framebuffer.getWidth()-1,
+                    (int)((event.getX()-dst.left)/dst.width()*framebuffer.getWidth())));
+                int y = Math.max(0, Math.min(framebuffer.getHeight()-1,
+                    (int)((event.getY()-dst.top)/dst.height()*framebuffer.getHeight())));
                 int buttons = (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) ? 0 : 1;
                 c.pointer(x, y, buttons);
+                if(buttons == 0) dragging = false;
             }
             return true;
         }
@@ -284,7 +406,7 @@ public class ViewerActivity extends Activity {
                         lastError = e;
                         try { trying.close(); } catch (IOException ignored) {}
                         if (attempt < 10) {
-                            updateStatus("Waiting for VM display · " + attempt + "/10", this);
+                            updateStatus("Waiting for display  ·  " + attempt + "/10", this);
                             Thread.sleep(950);
                         }
                     }
@@ -295,10 +417,10 @@ public class ViewerActivity extends Activity {
                 in = new DataInputStream(socket.getInputStream());
                 out = new DataOutputStream(socket.getOutputStream());
                 handshake();
-                updateStatus("Connected · " + width + "×" + height, this);
+                updateStatus("Connected  ·  " + width + " × " + height, this);
                 runOnUiThread(() -> {
                     if (client == this && !isFinishing()) {
-                        emptyLayer.setVisibility(View.GONE);
+                        if (emptyLayer != null) emptyLayer.setVisibility(View.GONE);
                     }
                 });
                 while (active && !socket.isClosed()) {
@@ -347,9 +469,9 @@ public class ViewerActivity extends Activity {
                     updateStatus("Offline · " + e.getClass().getSimpleName(), this);
                     runOnUiThread(() -> {
                         if (client == this && !isFinishing()) {
-                            emptyLayer.setVisibility(View.VISIBLE);
-                            emptyHeading.setText("No VM display");
-                            emptySubtitle.setText("QEMU VNC is not listening on 127.0.0.1:5901.\nOpen Machines → ⋮ → View QEMU log.");
+                            if (emptyLayer != null) emptyLayer.setVisibility(View.VISIBLE);
+                            emptyHeading.setText("Display offline");
+                            emptySubtitle.setText("The VM has not opened its display.\nCheck the QEMU log from Machines.");
                         }
                     });
                 }
