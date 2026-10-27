@@ -14,6 +14,7 @@ import io
 import json
 import os
 from pathlib import Path
+from rewrite_elf_inplace import aliases, rewrite
 import re
 import shutil
 import subprocess
@@ -192,47 +193,44 @@ while queue:
         installed[name] = provider_file
         queue.append(provider_file)
 
-# Emit canonical, collision-resistant names for packages with Debian SONAME suffixes.
-# Avoid colliding with Android's public libz.so, e.g. libz.so.1 -> libqdep_libz_so_1.so.
-names = {original: "libqdep_" + re.sub(r"[^a-zA-Z0-9_]", "_", original) + ".so"
-         for original in installed}
-if len(set(names.values())) != len(names):
-    raise RuntimeError("Resolved library name collision")
+# Short alias names fit inside the ORIGINAL ELF dynamic strings.
+# patchelf relocated .dynstr and ELF segments; Android linker on a real phone
+# emitted normalize_path warnings containing function-name fragments. We now
+# preserve the original ELF layout and edit only existing SONAME/NEEDED/RUNPATH
+# bytes, without changing program-header offsets.
+names = aliases(installed.keys())
 if not all(name.startswith("lib") and name.endswith(".so") for name in names.values()):
-    raise RuntimeError("Invalid APK shared library file naming")
+    raise RuntimeError("Invalid Android APK native library names")
 
 for original, source in installed.items():
     target = jni / names[original]
     if target.exists():
         raise RuntimeError(f"Refusing to overwrite {target}")
     shutil.copyfile(source, target)
-    # Package-specific libraries are versioned SONAMEs; APK manager requires
-    # unversioned filenames ending in .so. Rewrite all referring DT_NEEDED tags.
-    subprocess.run(["patchelf", "--set-soname", names[original], str(target)], check=True)
 
 for guest in ("x86_64", "aarch64"):
     packaged = jni / f"libqemu-system-{guest}.so"
     if not packaged.is_file():
         shutil.copyfile(qbin / f"qemu-system-{guest}", packaged)
 
-for obj in list(installed.values()):
-    pass
-for path in list(jni.glob("*.so")):
+rewrite_records = {}
+for path in sorted(jni.glob("*.so")):
     if path.name == "libqemu_bridge.so":
         continue
-    original_needed = needed(path)
-    for original in original_needed:
-        if original in names:
-            subprocess.run(
-                ["patchelf", "--replace-needed", original, names[original], str(path)],
-                check=True,
-            )
-    subprocess.run(["patchelf", "--set-rpath", "$ORIGIN", str(path)], check=True)
+    size_before = path.stat().st_size
+    edits = rewrite(path, names)
+    if path.stat().st_size != size_before:
+        raise RuntimeError("ELF in-place rewrite unexpectedly changed size")
+    rewrite_records[path.name] = edits
     if not is_android_arm64(path):
-        raise RuntimeError(f"Broken architecture after patchelf: {path}")
+        raise RuntimeError(f"Broken architecture: {path}")
     remaining = set(needed(path)) - SYSTEM - set(names.values())
     if remaining:
         raise RuntimeError(f"Unresolved NEEDED in {path.name}: {sorted(remaining)}")
+    dynamic = subprocess.check_output(["readelf", "-d", str(path)], text=True)
+    if "$ORIGIN" not in dynamic:
+        raise RuntimeError(f"Missing local RUNPATH in {path.name}")
+print("PASS: in-place dynstr rewrite preserved ELF layout for all targets.")
 
 report = {
     "status": "Dependency ELF closure complete in CI; Android device loading NOT TESTED",
@@ -241,6 +239,7 @@ report = {
     "packages": downloaded,
     "source_library_count": len(installed),
     "renamed_libraries": names,
+    "layout_preserving_elf_changes": rewrite_records,
     "staged_files": {p.name: p.stat().st_size for p in sorted(jni.glob("*.so"))},
     "warn": [
         "QEMU firmware paths/ROMs must be bundled and installed",
