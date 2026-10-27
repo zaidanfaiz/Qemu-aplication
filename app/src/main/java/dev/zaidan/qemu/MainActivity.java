@@ -121,7 +121,7 @@ public class MainActivity extends Activity {
                          NativeEngine.isAvailable(this, "aarch64");
         boolean running = NativeVmService.isRunning();
         engineText.setText(running ? "● VM process active" : engine ?
-                "Native QEMU library detected" :
+                "Native QEMU executable bundled (dependencies not verified)" :
                 "Native QEMU runtime not bundled yet");
         engineText.setTextColor(running ? 0xFF9CD8AE : engine ? FG : 0xFFFFBA88);
         if (machineText != null) {
@@ -138,7 +138,7 @@ public class MainActivity extends Activity {
         PopupMenu menu = new PopupMenu(this, anchor);
         String[] labels = {"Choose ISO", "Choose custom kernel", "Choose DTB",
                 "Architecture", "RAM", "CPU cores", "Disk capacity",
-                "Create virtual disk", "Open VM display", "Stop VM", "Native engine status"};
+                "Create virtual disk", "Open VM display", "Stop VM", "Native engine status", "View QEMU log"};
         for (int i = 0; i < labels.length; i++) menu.getMenu().add(0, i, i, labels[i]);
         menu.setOnMenuItemClickListener(item -> {
             switch (item.getItemId()) {
@@ -153,6 +153,7 @@ public class MainActivity extends Activity {
                 case 8: startActivity(new Intent(this, ViewerActivity.class)); break;
                 case 9: NativeVmService.stop(this); break;
                 case 10: engineDialog(); break;
+                case 11: showLog(); break;
                 default: break;
             }
             return true;
@@ -289,9 +290,30 @@ public class MainActivity extends Activity {
         message("Native QEMU launch requested; check engine status.");
     }
 
+    private void showLog() {
+        File log = new File(getFilesDir(), "qemu.log");
+        if (!log.isFile()) {
+            new AlertDialog.Builder(this).setTitle("QEMU log")
+                .setMessage("No QEMU log yet. It is created after native process launch.")
+                .setPositiveButton("OK", null).show();
+            return;
+        }
+        try {
+            java.io.RandomAccessFile input = new java.io.RandomAccessFile(log, "r");
+            long start = Math.max(0, input.length() - 12000);
+            input.seek(start);
+            byte[] content = new byte[(int)(input.length() - start)];
+            input.readFully(content);
+            input.close();
+            new AlertDialog.Builder(this).setTitle("QEMU runtime log")
+              .setMessage(new String(content, java.nio.charset.StandardCharsets.UTF_8))
+              .setPositiveButton("Close", null).show();
+        } catch (Exception e) { message("Cannot read log: " + e.getMessage()); }
+    }
+
     private void engineDialog() {
         new AlertDialog.Builder(this).setTitle("Native QEMU engine")
-          .setMessage("This branch has an Android NDK/JNI host adapter but the QEMU ARM64 binaries and firmware are NOT yet bundled. A successful APK build is not evidence that QEMU can boot. No Termux dependency is used here. Native backend integration and real-device testing are still required.")
+          .setMessage("Native execution now uses Android ProcessBuilder for packaged AArch64 QEMU PIE executables (instead of calling nonexistent QEMU JNI exports). The stable/main APK still does not include the executable or its shared-library dependencies. An experimental staging workflow packages raw binaries, but it is NOT a working bootable emulator. You can read process errors via View QEMU log. Firmware/dependency relocation and device tests are still required.")
           .setPositiveButton("OK", null).show();
     }
 

@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 public final class NativeVmService extends Service {
     private static volatile boolean running = false;
     private Thread machineThread;
+    private static volatile Process currentProcess;
     static boolean isRunning() { return running; }
 
     static void start(Context context) {
@@ -32,6 +33,7 @@ public final class NativeVmService extends Service {
     }
 
     static void stop(Context context) {
+        if (!running) return;
         Intent intent = new Intent(context, NativeVmService.class);
         intent.setAction("stop");
         context.startService(intent);
@@ -96,11 +98,20 @@ public final class NativeVmService extends Service {
                 args.add("-display"); args.add("none");
                 args.add("-vnc"); args.add("127.0.0.1:1");
                 args.add("-qmp"); args.add("tcp:127.0.0.1:4444,server=on,wait=off");
-                String error = NativeEngine.run(this, arch, args.toArray(new String[0]));
-                android.util.Log.i("QemuNativeService", "QEMU ended: " + error);
+                File biosDir = new File(getFilesDir(), "firmware");
+                if (biosDir.isDirectory()) {
+                    args.add("-L");
+                    args.add(biosDir.getAbsolutePath());
+                }
+                Process process = NativeEngine.start(this, arch, args.toArray(new String[0]));
+                currentProcess = process;
+                int exit = process.waitFor();
+                android.util.Log.i("QemuNativeService",
+                        "Native QEMU exited rc=" + exit + "; see qemu.log");
             } catch (Throwable t) {
                 android.util.Log.e("QemuNativeService", "Native VM failed", t);
             } finally {
+                currentProcess = null;
                 running = false;
                 stopForeground(STOP_FOREGROUND_REMOVE);
                 stopSelf();
@@ -126,7 +137,9 @@ public final class NativeVmService extends Service {
                 out.write("{\"execute\":\"quit\"}\r\n".getBytes(StandardCharsets.UTF_8));
                 out.flush();
             } catch (Exception e) {
-                android.util.Log.e("QemuNativeService", "QMP stop unavailable", e);
+                android.util.Log.e("QemuNativeService", "QMP stop unavailable; terminating process", e);
+                Process current = currentProcess;
+                if (current != null && current.isAlive()) current.destroy();
             }
         }, "qmp-quit").start();
     }
