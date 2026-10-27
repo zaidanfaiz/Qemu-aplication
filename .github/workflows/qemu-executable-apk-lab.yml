@@ -1,0 +1,83 @@
+name: QEMU Android Executable APK Staging Lab
+# Packaging experiment only: NO actual guest boot claim.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/qemu-executable-apk-lab.yml'
+      - 'scripts/qemu-lab/stage_qemu_executables.py'
+  workflow_dispatch:
+    inputs:
+      runtime_run_id:
+        description: 'Successful minimal Android ARM64 QEMU Actions run ID'
+        type: string
+        default: '40402854329'
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: qemu-exec-apk-staging
+  cancel-in-progress: true
+
+jobs:
+  stage-executables:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout Android application
+        uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK + native toolchain
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -n "$SDKMANAGER"
+          "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Download trusted QEMU runtime build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: qemu-android-arm64-minimal-DEPENDENCY-LAB
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.inputs.runtime_run_id || '40402854329' }}
+          github-token: ${{ github.token }}
+          path: input-runtime
+      - name: Verify archive and stage AArch64 PIE executables
+        run: |
+          set -euo pipefail
+          cd input-runtime
+          sha256sum -c qemu-android-arm64-minimal-v11.1.2.tar.gz.sha256
+          tar -xzf qemu-android-arm64-minimal-v11.1.2.tar.gz
+          cd ..
+          python3 scripts/qemu-lab/stage_qemu_executables.py \
+            input-runtime/qemu-android-minimal \
+            app/src/main/jniLibs/arm64-v8a
+      - name: Build standalone executable-packaging test APK
+        run: gradle --no-daemon --stacktrace assembleDebug
+      - name: Inspect executable ELF payloads packaged as native libraries
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          unzip -l "$APK" | grep 'lib/arm64-v8a/libqemu-system-x86_64.so'
+          unzip -l "$APK" | grep 'lib/arm64-v8a/libqemu-system-aarch64.so'
+          unzip -l "$APK" | grep 'lib/arm64-v8a/libqemu_bridge.so'
+          echo "::warning::QEMU binaries are packaged, but 15 direct libraries and their transitive dependencies, firmware and path relocation remain unresolved. VM boot is NOT expected."
+          cat native-runtime-audit/STAGING_AUDIT.json
+      - name: Upload staging APK and missing-libraries audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: INCOMPLETE-native-QEMU-executable-APK-NOT-BOOTABLE
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            native-runtime-audit/
+          if-no-files-found: error
+          retention-days: 7
