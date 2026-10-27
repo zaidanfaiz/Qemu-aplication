@@ -1,0 +1,116 @@
+name: QEMU Android Native Dependency Integration Lab
+
+# Full dependency-closure and firmware packaging. NOT a guest boot test.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/qemu-native-runtime-lab.yml'
+      - 'scripts/qemu-lab/bundle_termux_closure.py'
+      - 'app/src/main/java/dev/zaidan/qemu/NativeFirmware.java'
+  workflow_dispatch:
+    inputs:
+      minimal_run_id:
+        description: 'Successful minimal QEMU 11.1.2 run with 10 direct ELF dependencies'
+        required: true
+        default: '40452362228'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: qemu-native-dependency-integration
+  cancel-in-progress: true
+
+jobs:
+  build-runtime-apk:
+    name: Audit and bundle transitive QEMU ARM64 dependencies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - name: Checkout app source
+        uses: actions/checkout@v4
+      - name: Install Python and ELF manipulation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 patchelf binutils dpkg xz-utils file
+          python3 -m py_compile scripts/qemu-lab/stage_qemu_executables.py \
+            scripts/qemu-lab/bundle_termux_closure.py
+      - name: Download actual QEMU 11.1.2 Android ARM64 minimal binary
+        uses: actions/download-artifact@v4
+        with:
+          name: qemu-android-arm64-minimal-DEPENDENCY-LAB
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.inputs.minimal_run_id || '40452362228' }}
+          github-token: ${{ github.token }}
+          path: input-runtime
+      - name: Verify upstream cross-build and unpack ROM data
+        run: |
+          set -euo pipefail
+          (cd input-runtime && sha256sum -c qemu-android-arm64-minimal-v11.1.2.tar.gz.sha256)
+          tar -xzf input-runtime/qemu-android-arm64-minimal-v11.1.2.tar.gz \
+            -C input-runtime
+          ROMS=input-runtime/qemu-android-minimal/extracted/data/data/com.termux/files/usr/share/qemu
+          test -f "$ROMS/bios.bin"
+          test -f "$ROMS/vgabios-stdvga.bin"
+          test -f "$ROMS/edk2-aarch64-code.fd"
+          mkdir -p app/src/main/assets/qemu-roms native-runtime-audit
+          for firmware in bios.bin vgabios.bin vgabios-stdvga.bin vgabios-ramfb.bin \
+                          kvmvapic.bin efi-virtio.rom pxe-virtio.rom \
+                          edk2-aarch64-code.fd edk2-x86_64-code.fd edk2-licenses.txt; do
+            if test -f "$ROMS/$firmware"; then
+              cp "$ROMS/$firmware" "app/src/main/assets/qemu-roms/$firmware"
+            fi
+          done
+          (cd app/src/main/assets/qemu-roms && sha256sum * \
+            > "$GITHUB_WORKSPACE/native-runtime-audit/FIRMWARE-SHA256SUMS")
+      - name: Stage upstream Android PIE executables
+        run: |
+          python3 scripts/qemu-lab/stage_qemu_executables.py \
+            input-runtime/qemu-android-minimal \
+            app/src/main/jniLibs/arm64-v8a
+      - name: Download verified Termux ARM64 library packages, close DT_NEEDED, relocate RUNPATH
+        run: |
+          python3 scripts/qemu-lab/bundle_termux_closure.py \
+            input-runtime/qemu-android-minimal \
+            app/src/main/jniLibs/arm64-v8a \
+            native-runtime-audit
+      - name: Install JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android build SDK/NDK
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -n "$SDKMANAGER"
+          "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Compile Android native runtime test APK
+        run: gradle --no-daemon --stacktrace assembleDebug
+      - name: Verify packaged ELF closure and ROM assets
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          unzip -l "$APK" | grep -F 'lib/arm64-v8a/libqemu-system-aarch64.so'
+          unzip -l "$APK" | grep -F 'lib/arm64-v8a/libqemu-system-x86_64.so'
+          unzip -l "$APK" | grep -F 'assets/qemu-roms/bios.bin'
+          unzip -l "$APK" | grep -F 'assets/qemu-roms/edk2-aarch64-code.fd'
+          cat native-runtime-audit/CLOSURE_AUDIT.json
+          echo "::warning::ELF dependency closure passed CI only. Boot on Android ARM64 is NOT VERIFIED."
+      - name: Upload runtime candidate and audits (NOT an official release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: QEMU-ANDROID-NATIVE-DEPENDENCY-CANDIDATE-UNTESTED
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            native-runtime-audit/CLOSURE_AUDIT.json
+            native-runtime-audit/STAGING_AUDIT.json
+            native-runtime-audit/FIRMWARE-SHA256SUMS
+          retention-days: 7
+          if-no-files-found: error
