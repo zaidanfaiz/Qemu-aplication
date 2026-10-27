@@ -159,7 +159,7 @@ final class IsoInputDetector {
                 "ISO lain (belum dikenali)";
         String boot = bootMenu ? (auto ? "Kemungkinan perlu untuk memilih menu; ada timer otomatis" :
                                   "Kemungkinan perlu tombol navigasi GRUB/ISOLINUX") :
-                (bootloader ? "Bootloader terdeteksi, kebutuhan tombol tidak diketahui" :
+                (bootloader ? "Tidak diketahui (bootloader ada, menu tidak teridentifikasi)" :
                              "Tidak diketahui (menu boot tak terdeteksi)");
         String installer = (android && installMenu) ?
                 "YA — installer Android-x86 berbasis pilihan teks" :
