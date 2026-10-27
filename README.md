@@ -12,7 +12,7 @@
 </p>
 
 > [!IMPORTANT]
-> **Belum siap menjalankan VM secara mandiri.** Aplikasi Android, kompilasi QEMU dan eksperimen APK sudah berhasil. Tetapi QEMU belum terbukti boot di perangkat Android nyata. Jangan anggap build GitHub Actions berwarna hijau sebagai bukti emulator sudah berfungsi.
+> **APK kandidat sudah berisi runtime QEMU dan firmware, tetapi boot VM masih belum teruji.** Build GitHub Actions berhasil memaketkan executable, library transitif dan ROM. Stabilitas di HP Android tetap perlu diuji, jadi ini bukan rilis publik yang sudah siap pakai.
 
 ## Tentang proyek
 
@@ -20,7 +20,7 @@ Qemu Application adalah VM manager Android yang dirancang menjalankan QEMU **lan
 
 Antarmuka menggunakan Android native Java. Emulator QEMU dikompilasi untuk **host Android ARM64** menggunakan toolchain Android/Bionic. Guest yang ditargetkan adalah **x86_64** dan **AArch64** melalui software emulation (TCG), bukan hardware virtualization/KVM.
 
-**Kondisi saat ini:** repository `main` adalah proyek riset native. Binary QEMU belum dimasukkan ke APK reguler. Pengujian packaging dan dependensi berada di workflow Actions terpisah.
+**Kondisi saat ini:** `main` adalah proyek riset native. CI reguler membangun aplikasi tanpa engine; CI **Native Dependency Integration Lab** membangun APK kandidat dengan engine. Kedua jalur tetap terpisah sampai lulus uji perangkat.
 
 ## Perkembangan
 
@@ -31,10 +31,11 @@ Antarmuka menggunakan Android native Java. Emulator QEMU dikompilasi untuk **hos
 | Impor image ke penyimpanan privat, disk RAW | Ada |
 | QEMU 11.1.2 dari source resmi, smoke test QMP Linux | Lulus |
 | Cross-compile QEMU untuk host Android ARM64 | Lulus |
-| Build minimal dengan VNC: **31 → 15 → 10** direct ELF dependencies | Lulus |
-| Executable QEMU ARM64 + x86_64 dimasukkan ke APK eksperimen | Lulus packaging |
-| Seluruh dependensi transitif, firmware, dan path runtime | Dalam pengerjaan |
-| Boot guest, VNC, QMP pada HP Android | Belum teruji |
+| Build minimal dengan VNC: **31 → 15 → 10** dependensi ELF langsung | Lulus |
+| Dependency closure: **11 library non-sistem dari 8 paket** | **Lulus audit CI** |
+| QEMU + firmware dasar pada satu APK kandidat | **Lulus packaging** |
+| Linker Android aktual dan path runtime tambahan | Belum diuji di HP |
+| Boot guest, VNC, QMP pada HP Android | **Belum teruji** |
 
 <details>
 <summary>Mengapa hanya menghitung dependensi langsung?</summary>
@@ -54,22 +55,36 @@ Qemu Application (Android APK)
   │    └─ nativeLibraryDir/
   │         ├─ QEMU executable AArch64-host (x86_64 guest)
   │         ├─ QEMU executable AArch64-host (AArch64 guest)
-  │         └─ dependency libraries [integrasi berlangsung]
-  ├─ firmware/ [belum lengkap]
+  │         └─ dependency libraries [tersedia pada APK kandidat]
+  ├─ firmware/ [ROM dasar tersedia pada APK kandidat]
   ├─ qemu.log
   └─ VNC Viewer → tampilan guest
 ```
 
 **Binary-nya executable, bukan library JNI.** Binary hasil build memiliki ELF interpreter `/system/bin/linker64` dan tidak mengekspor `qemu_init`, `qemu_main_loop`, atau `qemu_cleanup`. Jalur native saat ini memakai `ProcessBuilder`. File executable hanya diberi nama `libqemu-system-*.so` agar dapat dipaketkan dan diekstrak Android melalui `nativeLibraryDir`; penggantian nama **tidak** mengubah format executable menjadi shared library.
 
+## APK kandidat native
+
+Workflow **[Native Dependency Integration Lab](https://github.com/zaidanfaiz/Qemu-aplication/actions/runs/40458801474)** sudah berhasil menghasilkan satu APK yang memuat emulator QEMU Android ARM64 dan dependensinya. Audit artifact terkonfirmasi:
+
+- **2** executable QEMU untuk guest x86_64 dan AArch64.
+- **11** library non-sistem yang ditemukan secara rekursif dari **8** paket ARM64, dengan verifikasi checksum paket.
+- **14** file native keseluruhan, termasuk JNI bridge lama, dan **10** ROM/firmware.
+- Penyesuaian nama library, `DT_NEEDED`, dan `RUNPATH=$ORIGIN` berhasil melewati audit di runner.
+- Ukuran APK sekitar **16,7 MB**. Struktur APK serta CRC sudah diperiksa.
+
+**Unduh melalui GitHub:** [buka run sukses](https://github.com/zaidanfaiz/Qemu-aplication/actions/runs/40458801474), lalu bagian **Artifacts** → `QEMU-ANDROID-NATIVE-DEPENDENCY-CANDIDATE-UNTESTED`. Ekstrak ZIP dan instal `app-debug.apk`.
+
+**Perlu diperhatikan:** dependency closure di CI bukan bukti Android linker akan menerima seluruh library saat runtime. QEMU mungkin masih gagal start akibat linker namespace, path yang tertanam, opsi QEMU, maupun firmware. Gunakan untuk pengujian, bukan untuk data penting.
+
 ## Pengujian aplikasi
 
-1. Buka **Actions → Native Android Prototype CI**, ambil artifact debug APK. Ini hanya berisi aplikasi native, **tanpa engine QEMU**.
-2. Untuk menguji **pengemasan** binary, buka [Executable APK Staging Lab](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/qemu-executable-apk-lab.yml) dan ambil artifact bertanda **NOT BOOTABLE**. Hasilnya ditujukan untuk pemeriksaan packaging, bukan menjalankan OS.
+1. Instal **APK kandidat native** dari Native Dependency Lab. Untuk uji engine, jangan memakai APK CI reguler karena belum menyertakan QEMU.
+2. Buka aplikasi; menu **⋮ → Native engine status** menunjukkan apakah executable terdeteksi.
 3. Di aplikasi, tekan **⋮ → Choose ISO**. Pilih file `.iso` di Files. Image diimpor ke penyimpanan privat aplikasi; pastikan ruang kosong cukup.
 4. Gunakan **Architecture** untuk memilih x86_64 atau aarch64. Untuk ARM64, gunakan **Choose custom kernel** dan **Choose DTB** bila diperlukan.
 5. Atur **RAM**, **CPU cores**, dan **Disk capacity**, kemudian **Create virtual disk**. Disk tidak ditimpa jika sudah ada.
-6. Kartu **Local VM** adalah aksi menjalankan mesin *setelah* runtime siap. Untuk diagnosis, buka **⋮ → View QEMU log**. Opsi **Stop VM** dan **Open VM display** tersedia, tetapi keduanya belum tervalidasi pada guest yang berhasil boot.
+6. Ketuk kartu **Local VM** untuk mencoba menjalankan QEMU. Jika gagal, buka **⋮ → View QEMU log** dan catat error pertama. Jika berhasil, lanjutkan pengujian **Open VM display**, QMP stop, dan reboot guest. Hasilnya belum dikonfirmasi pada perangkat asli.
 
 > [!NOTE]
 > Rilis lama `dev-latest` berasal dari implementasi sebelumnya yang memakai Termux dan **bukan** representasi source `main` saat ini.
@@ -81,7 +96,8 @@ Qemu Application (Android APK)
 | [Native Android Prototype CI](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/build-apk.yml) | Bangun UI dan service native Android | `NativeBridge-Prototype-NOT-QEMU` |
 | [QEMU Runtime Lab](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/qemu-runtime-lab.yml) | Compile dari [qemu/QEMU](https://github.com/qemu/QEMU) dan smoke test QMP | Linux + Android binaries |
 | [QEMU ARM64 Minimal](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/qemu-arm64-minimal.yml) | Pangkas fitur opsional, audit ELF | Paket ARM64 dan laporan dependensi |
-| [APK Staging Lab](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/qemu-executable-apk-lab.yml) | Kemasan executable QEMU dalam APK | `NOT-BOOTABLE` experimental APK |
+| [APK Staging Lab](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/qemu-executable-apk-lab.yml) | Uji pengemasan executable | `NOT-BOOTABLE` APK |
+| [Native Dependency Lab](https://github.com/zaidanfaiz/Qemu-aplication/actions/workflows/qemu-native-runtime-lab.yml) | Dependensi transitif + firmware + APK kandidat | `QEMU-ANDROID-NATIVE-DEPENDENCY-CANDIDATE-UNTESTED` |
 
 Sumber QEMU dipin ke versi **11.1.2** untuk konsistensi resep build. Resep Termux dipakai **hanya sebagai alat cross-compile di GitHub Actions**, bukan kewajiban instal Termux oleh pengguna aplikasi.
 
@@ -104,8 +120,9 @@ Perintah ini hanya membangun **aplikasi native**. Runtime QEMU dibangun lewat wo
 - [x] QEMU Android ARM64 terkompilasi dari source.
 - [x] Jumlah direct dependencies dikurangi menjadi 10.
 - [x] Executable berhasil dimasukkan ke APK eksperimen.
-- [ ] Bundle seluruh dependency closure dengan SONAME dan RUNPATH sesuai Android.
-- [ ] Siapkan firmware/ROM yang diperlukan tiap arsitektur.
+- [x] Audit dan bundling seluruh dependency closure ELF yang ditemukan, termasuk penyesuaian nama library dan RUNPATH dalam APK kandidat.
+- [x] Paketkan BIOS/ROM dasar untuk pengujian awal.
+- [ ] Pastikan kompatibilitas dengan **Android linker aktual** di HP.
 - [ ] Verifikasi proses native bisa dieksekusi pada perangkat Android ARM64.
 - [ ] Boot guest Linux sungguhan, uji VNC, QMP, shutdown, dan disk.
 - [ ] Audit lisensi dan kewajiban distribusi source QEMU serta dependensinya.
