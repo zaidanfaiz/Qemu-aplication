@@ -16,6 +16,7 @@ import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.util.SparseIntArray;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -61,10 +62,15 @@ public class ViewerActivity extends Activity {
     private View island;
     private View homeIndicator;
     private boolean deviceFrame = true;
+    private boolean nativeTouchMode;
+    private QmpMultiTouch qmpTouch;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         deviceFrame = getPreferences(MODE_PRIVATE).getBoolean("deviceFrame", true);
+        nativeTouchMode = getPreferences(MODE_PRIVATE).getBoolean("nativeGuestTouch", false);
+        qmpTouch = new QmpMultiTouch();
+        if (nativeTouchMode) qmpTouch.connect();
         getWindow().setStatusBarColor(BACKGROUND);
         getWindow().setNavigationBarColor(BACKGROUND);
         getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
@@ -195,7 +201,9 @@ public class ViewerActivity extends Activity {
         content.setLayoutParams(inner);
         island.setVisibility(deviceFrame ? View.VISIBLE : View.GONE);
         homeIndicator.setVisibility(deviceFrame ? View.VISIBLE : View.GONE);
-        footer.setText(deviceFrame ? "TOUCH  ·  SWIPE  ·  TWO-FINGER SCROLL" : "TOUCH INPUT  ·  LOCAL VNC");
+        footer.setText(nativeTouchMode ? "GUEST MULTITOUCH  ·  EXPERIMENTAL" :
+                (deviceFrame ? "TOUCH  ·  SWIPE  ·  TWO-FINGER SCROLL" :
+                               "TOUCH INPUT  ·  LOCAL VNC"));
         sizeDevice();
     }
 
@@ -204,7 +212,9 @@ public class ViewerActivity extends Activity {
         menu.getMenu().add(0, 1, 0, "Reconnect display");
         menu.getMenu().add(0, 2, 1, "Keyboard & send text");
         menu.getMenu().add(0, 3, 2, deviceFrame ? "Screen only" : "Show device frame");
-        menu.getMenu().add(0, 4, 3, "Back to machines");
+        menu.getMenu().add(0, 5, 3, nativeTouchMode ?
+            "Switch to standard touch" : "Guest multitouch (experimental)");
+        menu.getMenu().add(0, 4, 4, "Back to machines");
         menu.setOnMenuItemClickListener(item -> {
             switch(item.getItemId()) {
                 case 1: connect(); return true;
@@ -212,6 +222,19 @@ public class ViewerActivity extends Activity {
                 case 3:
                     deviceFrame = !deviceFrame;
                     getPreferences(MODE_PRIVATE).edit().putBoolean("deviceFrame", deviceFrame).apply();
+                    applyDeviceStyle();
+                    return true;
+                case 5:
+                    nativeTouchMode = !nativeTouchMode;
+                    getPreferences(MODE_PRIVATE).edit().putBoolean("nativeGuestTouch", nativeTouchMode).apply();
+                    if (nativeTouchMode) {
+                        qmpTouch.connect();
+                        Toast.makeText(this,
+                            "QMP multitouch needs a guest virtio input driver; reconnect may be needed",
+                            Toast.LENGTH_LONG).show();
+                    } else {
+                        Toast.makeText(this, "Standard touch gestures enabled", Toast.LENGTH_SHORT).show();
+                    }
                     applyDeviceStyle();
                     return true;
                 case 4: finish(); return true;
@@ -344,6 +367,7 @@ public class ViewerActivity extends Activity {
 
     @Override protected void onDestroy() {
         if(client != null) client.close();
+        if(qmpTouch != null) qmpTouch.close();
         super.onDestroy();
     }
 
@@ -359,6 +383,10 @@ public class ViewerActivity extends Activity {
         private int lastGuestX, lastGuestY;
         private float lastCenterX, lastCenterY;
         private float scrollRemainderX, scrollRemainderY;
+        private boolean qmpGesture;
+        private long lastQmpMoveAt;
+        private final SparseIntArray slots = new SparseIntArray();
+        private final SparseIntArray trackingIds = new SparseIntArray();
 
         ScreenView() {
             super(ViewerActivity.this);
@@ -425,6 +453,83 @@ public class ViewerActivity extends Activity {
             }
         }
 
+        // QMP supports explicit multi-contact events when a guest has
+        // a virtio-multitouch driver. VNC remains the default because generic
+        // PC/ISO guests do not all have that driver.
+        private int takeSlot() {
+            for (int candidate = 0; candidate <= 10; candidate++) {
+                boolean used = false;
+                for (int i = 0; i < slots.size(); i++) {
+                    if (slots.valueAt(i) == candidate) { used = true; break; }
+                }
+                if (!used) return candidate;
+            }
+            return -1;
+        }
+
+        private void beginGuestContact(MotionEvent event, int pointerIndex, RectF dst,
+                                       int width, int height) {
+            int pointerId = event.getPointerId(pointerIndex);
+            if (slots.indexOfKey(pointerId) >= 0) return;
+            int slot = takeSlot();
+            if (slot < 0) return;
+            int tracking = qmpTouch.trackingId();
+            int x = QmpMultiTouch.abs(coordX(event.getX(pointerIndex), dst, width), width);
+            int y = QmpMultiTouch.abs(coordY(event.getY(pointerIndex), dst, height), height);
+            boolean first = slots.size() == 0;
+            slots.put(pointerId, slot);
+            trackingIds.put(pointerId, tracking);
+            qmpTouch.begin(slot, tracking, x, y, first);
+        }
+
+        private void endGuestContact(int pointerId) {
+            int index = slots.indexOfKey(pointerId);
+            if (index < 0) return;
+            boolean last = slots.size() == 1;
+            qmpTouch.end(slots.valueAt(index), trackingIds.get(pointerId), last);
+            slots.delete(pointerId);
+            trackingIds.delete(pointerId);
+        }
+
+        private boolean guestContacts(MotionEvent event, RectF dst, int width, int height) {
+            int action = event.getActionMasked();
+            switch (action) {
+                case MotionEvent.ACTION_DOWN:
+                    slots.clear();
+                    trackingIds.clear();
+                    beginGuestContact(event, 0, dst, width, height);
+                    return true;
+                case MotionEvent.ACTION_POINTER_DOWN:
+                    beginGuestContact(event, event.getActionIndex(), dst, width, height);
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    if (event.getEventTime() - lastQmpMoveAt < 30) return true;
+                    lastQmpMoveAt = event.getEventTime();
+                    for (int index = 0; index < event.getPointerCount(); index++) {
+                        int id = event.getPointerId(index);
+                        int slot = slots.get(id, -1);
+                        if (slot < 0) continue;
+                        int x = QmpMultiTouch.abs(coordX(event.getX(index), dst, width), width);
+                        int y = QmpMultiTouch.abs(coordY(event.getY(index), dst, height), height);
+                        qmpTouch.move(slot, trackingIds.get(id), x, y);
+                    }
+                    return true;
+                case MotionEvent.ACTION_POINTER_UP:
+                    endGuestContact(event.getPointerId(event.getActionIndex()));
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    // Cancel every slot, not only actionIndex, to avoid stuck
+                    // fingers if Android cancels a multitouch gesture.
+                    for (int i = slots.size() - 1; i >= 0; i--)
+                        endGuestContact(slots.keyAt(i));
+                    qmpGesture = false;
+                    return true;
+                default:
+                    return true;
+            }
+        }
+
         @Override public boolean onTouchEvent(MotionEvent event) {
             final int action = event.getActionMasked();
             if (action != MotionEvent.ACTION_DOWN && action != MotionEvent.ACTION_UP
@@ -441,6 +546,14 @@ public class ViewerActivity extends Activity {
                     return true;
                 }
                 RectF dst = fitted(framebuffer.getWidth(), framebuffer.getHeight());
+                if (action == MotionEvent.ACTION_DOWN) {
+                    // Pick one transport for the duration of the gesture.
+                    qmpGesture = nativeTouchMode && qmpTouch != null && qmpTouch.isReady()
+                            && dst.contains(event.getX(), event.getY());
+                    if (qmpGesture) getParent().requestDisallowInterceptTouchEvent(true);
+                }
+                if (qmpGesture)
+                    return guestContacts(event, dst, framebuffer.getWidth(), framebuffer.getHeight());
                 switch (action) {
                     case MotionEvent.ACTION_DOWN:
                         twoFingerGesture = false;
