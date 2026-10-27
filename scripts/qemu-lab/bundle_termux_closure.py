@@ -80,9 +80,15 @@ def parse_contents(raw):
         if len(columns) < 2:
             continue
         path, providers = columns[0], columns[-1]
-        if "/lib/" not in path or ".so" not in path:
+        # Contents also indexes vendored copies in e.g. awscli/python modules.
+        # Only accept files installed directly into the system Termux lib dir.
+        base = "data/data/com.termux/files/usr/lib/"
+        if not path.lstrip("./").startswith(base):
             continue
-        name = path.rsplit("/", 1)[-1]
+        remainder = path.lstrip("./")[len(base):]
+        if "/" in remainder or ".so" not in remainder:
+            continue
+        name = remainder
         if not name.startswith("lib"):
             continue
         for provider in providers.split(","):
@@ -143,28 +149,42 @@ while queue:
             continue
         provider_file = source_library(name)
         if provider_file is None:
+            # Prefer known official packages for direct QEMU ELF dependencies.
+            official = {
+                "libz.so.1": "zlib",
+                "libpixman-1.so": "libpixman",
+                "libgio-2.0.so.0": "glib",
+                "libgobject-2.0.so.0": "glib",
+                "libglib-2.0.so.0": "glib",
+                "libgmodule-2.0.so.0": "glib",
+                "libfdt.so": "dtc",
+            }
             providers = sorted(contents.get(name, set()))
+            preferred = official.get(name)
+            if preferred:
+                providers = [preferred] + [p for p in providers if p != preferred]
             if not providers:
-                raise RuntimeError(f"No Termux aarch64 provider in Contents index for {name}")
-            providers.sort(key=lambda p: (0 if p in package_records else 1, p))
-            provider = next((p for p in providers if p in package_records), None)
-            if provider is None:
-                raise RuntimeError(f"Library {name}: providers {providers} missing in package index")
-            if provider not in downloaded:
-                if len(downloaded) >= MAX_PACKAGES:
-                    raise RuntimeError("Refusing more than 55 runtime packages")
-                record = package_records[provider]
-                relative = record["Filename"].lstrip("/")
-                print(f"Downloading {provider}: {name} ({relative})", flush=True)
-                package_bytes = fetch(relative)
-                digest = hashlib.sha256(package_bytes).hexdigest()
-                if digest.lower() != record["SHA256"].lower():
-                    raise RuntimeError(f"Package SHA256 mismatch: {provider}")
-                debfile = cache / (provider + ".deb")
-                debfile.write_bytes(package_bytes)
-                subprocess.run(["dpkg-deb", "--extract", str(debfile), str(extracted)], check=True)
-                downloaded.append(provider)
-            provider_file = source_library(name)
+                raise RuntimeError(f"No official Termux ARM64 provider for {name}")
+            for provider in providers:
+                if provider not in package_records:
+                    continue
+                if provider not in downloaded:
+                    if len(downloaded) >= MAX_PACKAGES:
+                        raise RuntimeError("Refusing more than 55 runtime packages")
+                    record = package_records[provider]
+                    relative = record["Filename"].lstrip("/")
+                    print(f"Downloading {provider}: {name} ({relative})", flush=True)
+                    package_bytes = fetch(relative)
+                    digest = hashlib.sha256(package_bytes).hexdigest()
+                    if digest.lower() != record["SHA256"].lower():
+                        raise RuntimeError(f"Package SHA256 mismatch: {provider}")
+                    debfile = cache / (provider + ".deb")
+                    debfile.write_bytes(package_bytes)
+                    subprocess.run(["dpkg-deb", "--extract", str(debfile), str(extracted)], check=True)
+                    downloaded.append(provider)
+                provider_file = source_library(name)
+                if provider_file is not None:
+                    break
         if provider_file is None or not provider_file.is_file():
             raise RuntimeError(f"Library {name} not found after installing {downloaded}")
         if not is_android_arm64(provider_file):
