@@ -95,11 +95,14 @@ public final class NativeVmService extends Service {
                     }
                     args.add("-vga"); args.add("std");
                 }
+                args.add("-nic"); args.add("none");
                 args.add("-display"); args.add("none");
                 args.add("-vnc"); args.add("127.0.0.1:1");
                 args.add("-qmp"); args.add("tcp:127.0.0.1:4444,server=on,wait=off");
-                File biosDir = new File(getFilesDir(), "firmware");
-                if (biosDir.isDirectory()) {
+                // The default main APK has no firmware assets yet.
+                // The experimental runtime job bundles ROMs under assets/qemu-roms/.
+                File biosDir = NativeFirmware.prepare(this);
+                if (biosDir != null && biosDir.isDirectory()) {
                     args.add("-L");
                     args.add(biosDir.getAbsolutePath());
                 }
