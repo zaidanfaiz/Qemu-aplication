@@ -44,6 +44,16 @@ Antarmuka menggunakan Android native Java. Emulator QEMU dikompilasi untuk **hos
 
 </details>
 
+## Kontrol touchscreen Android
+
+Viewer mendukung **tap**, **tekan-tahan**, dan **swipe/drag** langsung pada area framebuffer. Input dikirim lewat RFB PointerEvent dan diterima QEMU melalui perangkat pointer absolut **USB tablet** untuk mesin PC x86_64. **Geser dua jari** pada layar untuk mengirim pulsa scroll (wheel RFB), bukan melakukan drag/klik tanpa sengaja.
+
+- Tap = sentuhan yang diterjemahkan menjadi satu klik perangkat virtual.
+- Tekan-tahan = tombol utama ditahan sampai jari dilepaskan.
+- Swipe = pergerakan pointer dengan tombol utama tetap ditekan.
+- Dua jari = scroll vertikal atau horizontal melalui RFB.
+- Touch tetap dibatasi pada **satu pointer guest**. Gestur seperti pinch-to-zoom sistem iOS serta multitouch native memerlukan perangkat emulasi dan driver guest khusus. **ISO/guest belum otomatis mendukung touchscreen native iOS.**
+
 ## Tampilan simulator perangkat
 
 Viewer tidak lagi memaksa posisi lanskap atau menampilkan bar tombol terminal. Versi UI terbaru menampilkan **frame perangkat bergaya iPhone dalam posisi potret**, dengan display VNC di dalamnya dan rasio asli framebuffer tetap terjaga.

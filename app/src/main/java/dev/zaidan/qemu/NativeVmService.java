@@ -93,6 +93,10 @@ public final class NativeVmService extends Service {
                         args.add("-drive"); args.add("file=" + iso + ",media=cdrom,readonly=on");
                         args.add("-boot"); args.add("order=d");
                     }
+                    // Absolute HID coordinates avoid PS/2 mouse drift and make
+                    // fingertip location correspond to the VNC framebuffer.
+                    args.add("-usb");
+                    args.add("-device"); args.add("usb-tablet");
                     args.add("-vga"); args.add("std");
                 }
                 args.add("-nic"); args.add("none");

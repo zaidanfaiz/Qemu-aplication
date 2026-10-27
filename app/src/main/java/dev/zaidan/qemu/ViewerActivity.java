@@ -195,7 +195,7 @@ public class ViewerActivity extends Activity {
         content.setLayoutParams(inner);
         island.setVisibility(deviceFrame ? View.VISIBLE : View.GONE);
         homeIndicator.setVisibility(deviceFrame ? View.VISIBLE : View.GONE);
-        footer.setText(deviceFrame ? "DEVICE FRAME  ·  LOCAL VNC" : "SCREEN ONLY  ·  LOCAL VNC");
+        footer.setText(deviceFrame ? "TOUCH  ·  SWIPE  ·  TWO-FINGER SCROLL" : "TOUCH INPUT  ·  LOCAL VNC");
         sizeDevice();
     }
 
@@ -353,15 +353,21 @@ public class ViewerActivity extends Activity {
 
     private class ScreenView extends View {
         private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-        private boolean dragging = false;
+        private boolean pressed;
+        private boolean twoFingerGesture;
+        private boolean ignoreUntilAllReleased;
+        private int lastGuestX, lastGuestY;
+        private float lastCenterX, lastCenterY;
+        private float scrollRemainderX, scrollRemainderY;
 
         ScreenView() {
             super(ViewerActivity.this);
             setBackgroundColor(Color.BLACK);
+            setClickable(true);
         }
 
         private RectF fitted(int w, int h) {
-            float scale = Math.min(getWidth() / (float)w, getHeight() / (float)h);
+            float scale = Math.min(getWidth() / (float) w, getHeight() / (float) h);
             float left = (getWidth() - w * scale) / 2f;
             float top = (getHeight() - h * scale) / 2f;
             return new RectF(left, top, left + w * scale, top + h * scale);
@@ -370,35 +376,122 @@ public class ViewerActivity extends Activity {
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             synchronized (framebufferLock) {
-                if(framebuffer != null && !framebuffer.isRecycled())
+                if (framebuffer != null && !framebuffer.isRecycled())
                     canvas.drawBitmap(framebuffer, null,
                             fitted(framebuffer.getWidth(), framebuffer.getHeight()), bitmapPaint);
             }
         }
 
+        private int coordX(float x, RectF dst, int width) {
+            return Math.max(0, Math.min(width - 1, Math.round(
+                    (x - dst.left) / dst.width() * (width - 1))));
+        }
+
+        private int coordY(float y, RectF dst, int height) {
+            return Math.max(0, Math.min(height - 1, Math.round(
+                    (y - dst.top) / dst.height() * (height - 1))));
+        }
+
+        private void release(RfbClient c) {
+            if (pressed) {
+                c.pointer(lastGuestX, lastGuestY, 0);
+                pressed = false;
+            }
+        }
+
+        private void wheelFromTwoFingers(RfbClient c, MotionEvent event) {
+            float centerX = (event.getX(0) + event.getX(1)) / 2f;
+            float centerY = (event.getY(0) + event.getY(1)) / 2f;
+            float deltaX = centerX - lastCenterX;
+            float deltaY = centerY - lastCenterY;
+            lastCenterX = centerX;
+            lastCenterY = centerY;
+            scrollRemainderX += deltaX;
+            scrollRemainderY += deltaY;
+            // RFB: wheel-up bit 3, wheel-down bit 4; left bit 5, right bit 6.
+            // Dragging two fingers upward scrolls content down, like a phone.
+            float threshold = dp(24);
+            int count = 0;
+            while (Math.abs(scrollRemainderY) >= threshold && count++ < 5) {
+                int mask = scrollRemainderY > 0 ? 8 : 16;
+                c.wheel(lastGuestX, lastGuestY, mask);
+                scrollRemainderY += scrollRemainderY > 0 ? -threshold : threshold;
+            }
+            count = 0;
+            while (Math.abs(scrollRemainderX) >= threshold && count++ < 5) {
+                int mask = scrollRemainderX > 0 ? 32 : 64;
+                c.wheel(lastGuestX, lastGuestY, mask);
+                scrollRemainderX += scrollRemainderX > 0 ? -threshold : threshold;
+            }
+        }
+
         @Override public boolean onTouchEvent(MotionEvent event) {
             final int action = event.getActionMasked();
-            if(action != MotionEvent.ACTION_DOWN && action != MotionEvent.ACTION_MOVE &&
-               action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL) return false;
+            if (action != MotionEvent.ACTION_DOWN && action != MotionEvent.ACTION_UP
+                    && action != MotionEvent.ACTION_MOVE
+                    && action != MotionEvent.ACTION_POINTER_DOWN
+                    && action != MotionEvent.ACTION_POINTER_UP
+                    && action != MotionEvent.ACTION_CANCEL) return false;
+
             RfbClient c = client;
-            if(c == null) return true;
+            if (c == null) return true;
             synchronized (framebufferLock) {
-                if(framebuffer == null || framebuffer.isRecycled()) return true;
-                RectF dst = fitted(framebuffer.getWidth(), framebuffer.getHeight());
-                if(action == MotionEvent.ACTION_DOWN) {
-                    dragging = dst.contains(event.getX(), event.getY());
-                    if(!dragging) return true;
+                if (framebuffer == null || framebuffer.isRecycled()) {
+                    pressed = false;
+                    return true;
                 }
-                if(!dragging) return true;
-                int x = Math.max(0, Math.min(framebuffer.getWidth()-1,
-                    (int)((event.getX()-dst.left)/dst.width()*framebuffer.getWidth())));
-                int y = Math.max(0, Math.min(framebuffer.getHeight()-1,
-                    (int)((event.getY()-dst.top)/dst.height()*framebuffer.getHeight())));
-                int buttons = (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) ? 0 : 1;
-                c.pointer(x, y, buttons);
-                if(buttons == 0) dragging = false;
+                RectF dst = fitted(framebuffer.getWidth(), framebuffer.getHeight());
+                switch (action) {
+                    case MotionEvent.ACTION_DOWN:
+                        twoFingerGesture = false;
+                        ignoreUntilAllReleased = false;
+                        scrollRemainderX = scrollRemainderY = 0;
+                        if (!dst.contains(event.getX(), event.getY())) return true;
+                        getParent().requestDisallowInterceptTouchEvent(true);
+                        lastGuestX = coordX(event.getX(), dst, framebuffer.getWidth());
+                        lastGuestY = coordY(event.getY(), dst, framebuffer.getHeight());
+                        // Holding the primary RFB button maps tap, long-press and
+                        // drag/swipe to guests that support mouse/tablet input.
+                        pressed = true;
+                        c.pointer(lastGuestX, lastGuestY, 1);
+                        return true;
+                    case MotionEvent.ACTION_POINTER_DOWN:
+                        if (event.getPointerCount() >= 2) {
+                            release(c); // never leave button #1 held during scrolling
+                            twoFingerGesture = true;
+                            lastCenterX = (event.getX(0) + event.getX(1)) / 2f;
+                            lastCenterY = (event.getY(0) + event.getY(1)) / 2f;
+                            scrollRemainderX = scrollRemainderY = 0;
+                        }
+                        return true;
+                    case MotionEvent.ACTION_MOVE:
+                        if (twoFingerGesture && event.getPointerCount() >= 2) {
+                            wheelFromTwoFingers(c, event);
+                        } else if (pressed && !twoFingerGesture && !ignoreUntilAllReleased) {
+                            lastGuestX = coordX(event.getX(), dst, framebuffer.getWidth());
+                            lastGuestY = coordY(event.getY(), dst, framebuffer.getHeight());
+                            c.pointer(lastGuestX, lastGuestY, 1);
+                        }
+                        return true;
+                    case MotionEvent.ACTION_POINTER_UP:
+                        // Do not synthesize an accidental tap from the finger that
+                        // remains on screen after a two-finger gesture.
+                        if (twoFingerGesture && event.getPointerCount() <= 2) {
+                            twoFingerGesture = false;
+                            ignoreUntilAllReleased = true;
+                        }
+                        return true;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        release(c);
+                        twoFingerGesture = false;
+                        ignoreUntilAllReleased = false;
+                        scrollRemainderX = scrollRemainderY = 0;
+                        return true;
+                    default:
+                        return true;
+                }
             }
-            return true;
         }
     }
 
@@ -545,6 +638,20 @@ public class ViewerActivity extends Activity {
                 out.writeByte(3); out.writeByte(incremental ? 1 : 0);
                 out.writeShort(0); out.writeShort(0);
                 out.writeShort(width); out.writeShort(height); out.flush();
+            }
+        }
+
+        void wheel(int x, int y, int mask) {
+            // RFB wheel events are pulses: pressed then released, no held state.
+            synchronized (outputLock) {
+                if (out == null || !active) return;
+                try {
+                    out.writeByte(5); out.writeByte(mask);
+                    out.writeShort(x); out.writeShort(y);
+                    out.writeByte(5); out.writeByte(0);
+                    out.writeShort(x); out.writeShort(y);
+                    out.flush();
+                } catch (IOException e) { close(); }
             }
         }
 
